@@ -8,13 +8,14 @@ sdkconfig.defaults.old
 # PlatformIO (Si alguna vez se usa o quedan restos)
 .pio/
 
-# VSCode (Ignorar todo local excepto las configuraciones base si se desean compartir)
+# VSCode y Herramientas (Ignorar todo local excepto las configuraciones base si se desean compartir)
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 *.code-workspace
+.cache/
 
 # Python (Si agregas scripts auxiliares en el futuro)
 __pycache__/
