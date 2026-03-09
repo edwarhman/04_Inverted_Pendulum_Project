@@ -3,6 +3,7 @@
 #include <stdarg.h>  // Para va_list y macros relacionadas
 #include <string.h>  // Necesario para memset
 #include "hd44780.h" // La nueva librería tiene el mismo nombre de cabecera
+#include "car_position.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -201,8 +202,8 @@ void lcd_display_task(void *pvParameters)
         case VIEW_POSITION:
         {
             lcd_printf_line(0, "Posicion carro:");
-            g_car_position_cm = g_car_position_pulses * 12 / 37200;
-            lcd_printf_line(1, "%.1f cm", g_car_position_cm);
+            float car_pos_cm = car_position_get_centimeters();
+            lcd_printf_line(1, "%.1f cm", car_pos_cm);
             break;
         }
 

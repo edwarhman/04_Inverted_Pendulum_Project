@@ -11,6 +11,7 @@
 #include "pulse_counter.h"  // Para la tarea de lectura del encoder
 #include "button_handler.h" // Para la tarea de lectura del botón
 #include "pid_controller.h"
+#include "car_position.h"
 #include "freertos/queue.h"
 #include "lcd_controller.h" // ¡Solo incluimos nuestro módulo!
 #include "system_status.h"
@@ -29,6 +30,7 @@ void app_main(void)
 
   pwm_init();           // inicializa y configura pines del driver
   pulse_counter_init(); // inicializa y configura pines del encoder
+  car_position_init();  // inicializa el módulo de posición del carro
   lcd_init();           // Inicializar la pantalla
 
   // Mensaje de bienvenida en la pantalla

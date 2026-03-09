@@ -1,5 +1,6 @@
 // src/button_handler.c
 #include "button_handler.h"
+#include "car_position.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -150,7 +151,7 @@ void button_handler_task(void *arg) {
         g_lcd_view_state = VIEW_CALIBRATION;
 
         int32_t limit_left_pos, limit_right_pos;
-        g_car_position_pulses = 0;
+        car_position_reset();
 
         // 1. Mover a la izquierda hasta que el final de carrera se active
         ESP_LOGI(TAG, "Buscando límite derecho (GPIO %d)...",
@@ -160,10 +161,10 @@ void button_handler_task(void *arg) {
         while (gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT) == 1) {
           int pulses_moved = execute_movement(JOG_PULSES, CALIBRATION_SPEED_HZ,
                                               0); // Dir 0 = Izquierda
-          g_car_position_pulses -= pulses_moved;
+          car_position_subtract_pulses(pulses_moved);
         }
         // --- El bucle se rompe en cuanto el pin se va a BAJO ---
-        limit_left_pos = g_car_position_pulses;
+        limit_left_pos = car_position_get_pulses();
         ESP_LOGW(TAG, "Límite 1 detectado en: %ld pulsos", limit_left_pos);
         vTaskDelay(pdMS_TO_TICKS(200)); // Pausa para estabilizar
 
@@ -172,9 +173,9 @@ void button_handler_task(void *arg) {
         while (gpio_get_level(EMERGENCY_STOP_GPIO_LEFT) == 1) {
           int pulses_moved = execute_movement(JOG_PULSES, CALIBRATION_SPEED_HZ,
                                               1); // Dir 1 = Derecha
-          g_car_position_pulses += pulses_moved;
+          car_position_add_pulses(pulses_moved);
         }
-        limit_right_pos = g_car_position_pulses;
+        limit_right_pos = car_position_get_pulses();
         ESP_LOGW(TAG, "Límite 2 detectado en: %ld pulsos", limit_right_pos);
         vTaskDelay(pdMS_TO_TICKS(200));
 
@@ -186,13 +187,13 @@ void button_handler_task(void *arg) {
 
         ESP_LOGI(TAG, "Moviendo al centro...");
 
-        int32_t pulses_to_center = abs(center_pos - g_car_position_pulses);
-        int direction_to_center = (center_pos > g_car_position_pulses) ? 1 : 0;
+        int32_t pulses_to_center = abs(center_pos - car_position_get_pulses());
+        int direction_to_center = (center_pos > car_position_get_pulses()) ? 1 : 0;
         execute_movement(pulses_to_center, JOG_SPEED_HZ, direction_to_center);
-        g_car_position_pulses = 0;
+        car_position_reset();
 
         ESP_LOGW(TAG, "--- CALIBRACIÓN FINALIZADA. Posición: %ld ---",
-                 g_car_position_pulses);
+                 car_position_get_pulses());
         ESP_LOGI(TAG,
                  "Esperando 5 segundos para estabilizar..."); // antes en dos
                                                               // segundos

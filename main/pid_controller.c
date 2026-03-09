@@ -1,5 +1,6 @@
 // src/pid_controller.c
 #include "pid_controller.h"
+#include "car_position.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -90,9 +91,6 @@ static float g_kd = 70.0; // 70.0, 50, 0 // Ganancia Derivativa: El "futuro".
 // --- Variable para el angulo del pendulo ---
 static volatile int16_t g_absolute_setpoint =
     0; // Se inicializa en 0 por defecto
-
-// --- Variable para la posición del carro ---
-volatile int32_t g_car_position_pulses = 0; // pwm_generator puede actualizarla.
 
 static float g_integral = 0.0;
 static float g_last_error = 0.0;
@@ -192,7 +190,7 @@ void pid_controller_task(void *arg) {
 
     // --- Lógica de control de posición ---
     // a. Calcular el error de posición del carro (queremos que sea 0)
-    float position_error = g_car_position_pulses - 0.0f;
+    float position_error = car_position_get_pulses() - 0.0f;
     // b. Convertir el error de posición en un pequeño offset para el setpoint
     // del ángulo
     float setpoint_offset = position_error * POSITION_CONTROL_GAIN;
@@ -202,8 +200,8 @@ void pid_controller_task(void *arg) {
     if (setpoint_offset < -MAX_SETPOINT_OFFSET)
       setpoint_offset = -MAX_SETPOINT_OFFSET;
     // d. Calcular el setpoint dinámico para este ciclo
-    if (g_car_position_pulses < dead_band_x &&
-        g_car_position_pulses > (-1 * dead_band_x)) {
+    if (car_position_get_pulses() < dead_band_x &&
+        car_position_get_pulses() > (-1 * dead_band_x)) {
       setpoint_offset = 0;
     }
     int16_t dynamic_setpoint = g_absolute_setpoint + (int16_t)setpoint_offset;
@@ -282,9 +280,9 @@ void pid_controller_task(void *arg) {
       float pulses_this_cycle =
           (float)frequency * (PID_LOOP_PERIOD_MS / 1000.0f);
       if (direction == 1) {
-        g_car_position_pulses += (int32_t)pulses_this_cycle;
+        car_position_add_pulses((int32_t)pulses_this_cycle);
       } else {
-        g_car_position_pulses -= (int32_t)pulses_this_cycle;
+        car_position_subtract_pulses((int32_t)pulses_this_cycle);
       }
 
       // Enviar el comando de velocidad continua

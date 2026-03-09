@@ -5,9 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// la posición del carro
-extern volatile int32_t g_car_position_pulses;
-
 /**
  * @brief Tarea principal del controlador PID.
  * Se ejecuta a una frecuencia fija para leer el sensor y controlar el motor.
