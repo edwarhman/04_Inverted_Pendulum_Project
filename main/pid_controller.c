@@ -88,8 +88,8 @@ static float g_kd = 70.0; // 70.0, 50, 0 // Ganancia Derivativa: El "futuro".
                           // Predice y amortigua.
 
 // --- Variable para el angulo del pendulo ---
-static volatile int16_t g_absolute_setpoint =
-    0; // Se inicializa en 0 por defecto
+static volatile float g_absolute_setpoint =
+    0.0f; // Se inicializa en 0 por defecto (radianes)
 
 // --- Variable para la posición del carro ---
 volatile int32_t g_car_position_pulses = 0; // pwm_generator puede actualizarla.
@@ -105,9 +105,9 @@ float pid_get_kd(void) { return g_kd; }
 // --- Implementación de funciones públicas ---
 
 // --- establecer el setpoint externamente ---
-void pid_set_absolute_setpoint(int16_t new_setpoint) {
+void pid_set_absolute_setpoint(float new_setpoint) {
   g_absolute_setpoint = new_setpoint;
-  ESP_LOGW(TAG, "Setpoint absoluto establecido en: %d", g_absolute_setpoint);
+  ESP_LOGW(TAG, "Setpoint absoluto establecido en: %.4f rad", g_absolute_setpoint);
 }
 
 void pid_toggle_enable(void) {
@@ -144,7 +144,7 @@ void pid_set_kd(float kd) {
 }
 
 // --- AÑADIDO: Implementación de la nueva función 'getter' ---
-int16_t pid_get_setpoint(void) { return g_absolute_setpoint; }
+float pid_get_setpoint(void) { return g_absolute_setpoint; }
 
 // --- AÑADIDO: Implementación de la función de deshabilitación forzada ---
 void pid_force_disable(void) {
@@ -168,10 +168,9 @@ bool pid_is_enabled(void) { return g_pid_enabled; }
 
 void pid_controller_task(void *arg) {
   TickType_t last_wake_time = xTaskGetTickCount();
-  float dead_band_x =
-      DEAD_BAND_X_CM * 37200 / 12; // convierte lo cm a pulsos utiles
-  int DEAD_BAND_PULSES =
-      DEAD_BAND_ANGLE * 4096 / 360; // convierte el angulo a pulsos utiles
+  float dead_band_x_cm = DEAD_BAND_X_CM;
+  float DEAD_BAND_RADIANS = DEAD_BAND_ANGLE * M_PI / 180.0f;
+  float MAX_SETPOINT_OFFSET_RAD = MAX_SETPOINT_OFFSET * M_PI / 180.0f;
 
   // Reseteamos el error anterior al habilitar para evitar un pico inicial en D
   pid_toggle_enable(); // Habilita y resetea
@@ -188,7 +187,7 @@ void pid_controller_task(void *arg) {
     }
 
     // 1. MEDIR estado actual
-    int16_t current_angle = pulse_counter_get_value();
+    float current_angle = pulse_counter_get_angle_radians();
 
     // --- Lógica de control de posición ---
     // a. Calcular el error de posición del carro (queremos que sea 0)
@@ -197,26 +196,25 @@ void pid_controller_task(void *arg) {
     // del ángulo
     float setpoint_offset = position_error * POSITION_CONTROL_GAIN;
     // c. Limitar (saturar) el offset para que no pida ángulos peligrosos
-    if (setpoint_offset > MAX_SETPOINT_OFFSET)
-      setpoint_offset = MAX_SETPOINT_OFFSET;
-    if (setpoint_offset < -MAX_SETPOINT_OFFSET)
-      setpoint_offset = -MAX_SETPOINT_OFFSET;
+    if (setpoint_offset > MAX_SETPOINT_OFFSET_RAD)
+      setpoint_offset = MAX_SETPOINT_OFFSET_RAD;
+    if (setpoint_offset < -MAX_SETPOINT_OFFSET_RAD)
+      setpoint_offset = -MAX_SETPOINT_OFFSET_RAD;
     // d. Calcular el setpoint dinámico para este ciclo
-    if (g_car_position_pulses < dead_band_x &&
-        g_car_position_pulses > (-1 * dead_band_x)) {
+    float dead_band_x_rad = dead_band_x_cm * 37200.0f / 12.0f * M_PI / 180.0f;
+    if (g_car_position_pulses < (dead_band_x_cm * 37200 / 12) &&
+        g_car_position_pulses > (-1 * dead_band_x_cm * 37200 / 12)) {
       setpoint_offset = 0;
     }
-    int16_t dynamic_setpoint = g_absolute_setpoint + (int16_t)setpoint_offset;
+    float dynamic_setpoint = g_absolute_setpoint + setpoint_offset;
 
     // 2. CALCULAR ERROR de ángulo usando el setpoint dinámico
     float angle_error =
         dynamic_setpoint -
-        current_angle; // dynamic_setpoint - current_angle; poner en cero
-                       // dynamic_setpoint un setpoint fijo
-    // float angle_error = 0 - current_angle;
+        current_angle;
 
     // 3. APLICAR BANDA MUERTA
-    if (fabs(angle_error) < DEAD_BAND_PULSES) {
+    if (fabs(angle_error) < DEAD_BAND_RADIANS) {
       angle_error = 0;
     }
 

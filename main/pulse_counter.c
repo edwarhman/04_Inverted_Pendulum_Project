@@ -1,6 +1,12 @@
 // src/pulse_counter.c
 #include "pulse_counter.h"
 #include <stdio.h>
+#define _USE_MATH_DEFINES
+#include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/pcnt.h"
@@ -88,4 +94,24 @@ int16_t pulse_counter_get_value(void) {
     int16_t count = 0;
     pcnt_get_counter_value(PCNT_UNIT, &count);
     return count;
+}
+
+/**
+ * @brief Obtiene el ángulo actual del encoder en grados.
+ * 
+ * @return Ángulo en grados (float). 0° = punto de equilibrio.
+ */
+float pulse_counter_get_angle_degrees(void) {
+    int16_t count = pulse_counter_get_value();
+    return ((float)count / ENCODER_RESOLUTION) * 360.0f;
+}
+
+/**
+ * @brief Obtiene el ángulo actual del encoder en radianes.
+ * 
+ * @return Ángulo en radianes (float). 0 = punto de equilibrio.
+ */
+float pulse_counter_get_angle_radians(void) {
+    int16_t count = pulse_counter_get_value();
+    return ((float)count / ENCODER_RESOLUTION) * 2.0f * M_PI;
 }

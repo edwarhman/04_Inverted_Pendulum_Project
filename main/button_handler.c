@@ -11,6 +11,11 @@
 #include "system_status.h" // Para manejar el estado del movimiento manual
 #include "uart_echo.h" // Incluimos para acceder a la cola y la estructura de comando
 #include <stdio.h>
+#include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 
 // --- PINES DE LOS BOTONES ---
@@ -203,22 +208,18 @@ void button_handler_task(void *arg) {
         ESP_LOGI(TAG, "Calculando setpoint vertical...");
 
         // 1. Leer la posición del encoder con el péndulo caído y centrado.
-        int16_t fallen_pos = pulse_counter_get_value();
-        ESP_LOGI(TAG, "Posición 'caída' detectada: %d", fallen_pos);
+        float fallen_angle_rad = pulse_counter_get_angle_radians();
+        ESP_LOGI(TAG, "Angulo 'caido' detectado: %.4f rad", fallen_angle_rad);
 
-        // 2. Calcular la posición vertical (180 grados de diferencia).
-        // Usamos el operador de módulo para manejar el "wrap-around" del
-        // contador de 16 bits.
-        int32_t vertical_setpoint_32 = fallen_pos + (ENCODER_RESOLUTION / 2);
-        int16_t vertical_setpoint_16 =
-            (int16_t)vertical_setpoint_32; // Casting para el rango correcto
+        // 2. Calcular la posición vertical (180 grados de diferencia = PI rad).
+        float vertical_angle_rad = fallen_angle_rad + M_PI;
 
         // 3. Llamar a la función del PID para establecer el setpoint calculado.
-        pid_set_absolute_setpoint(vertical_setpoint_16);
+        pid_set_absolute_setpoint(vertical_angle_rad);
 
         ESP_LOGW(TAG,
-                 "Setpoint vertical pre-calculado: %d. El sistema está listo.",
-                 vertical_setpoint_16);
+                 "Setpoint vertical pre-calculado: %.4f rad. El sistema esta listo.",
+                 vertical_angle_rad);
         ESP_LOGW(TAG,
                  "Levante el péndulo y presione el botón de habilitar PID.");
 

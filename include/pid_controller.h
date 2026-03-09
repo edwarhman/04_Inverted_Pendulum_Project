@@ -38,10 +38,10 @@ void pid_set_kd(float kd);
 
 /**
  * @brief Devuelve el punto de consigna (setpoint) actual del controlador.
- * @return El setpoint actual en cuentas del encoder.
+ * @return El setpoint actual en radianes.
  */
-int16_t pid_get_setpoint(void);
-void pid_set_absolute_setpoint(int16_t new_setpoint);
+float pid_get_setpoint(void);
+void pid_set_absolute_setpoint(float new_setpoint);
 
 /**
  * @brief Devuelve si el bucle de control del PID está actualmente habilitado.

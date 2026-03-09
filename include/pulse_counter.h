@@ -2,28 +2,31 @@
 #ifndef PULSE_COUNTER_H
 #define PULSE_COUNTER_H
 
-#include <stdint.h> // Para usar int16_t
+#include <stdint.h>
+#include <math.h>
 
 #define ENCODER_RESOLUTION 4096 // 1024 pulsos/rev * 4
 
 /**
  * @brief Obtiene el valor actual del contador del encoder.
  * 
- * Esta función es segura para ser llamada desde cualquier tarea y proporciona la
- * posición angular actual con una resolución de 4096 cuentas por revolución.
- * 
- * @return El valor actual del contador.
+ * @return Valor del contador (cuentas).
  */
 int16_t pulse_counter_get_value(void);
 
 /**
- * @brief Tarea que inicializa y gestiona el periférico PCNT para el encoder.
+ * @brief Obtiene el ángulo actual del encoder en grados.
  * 
- * Realiza toda la configuración del hardware. Después se usa para depuración.
+ * @return Ángulo en grados (float). 0° = punto de equilibrio.
+ */
+float pulse_counter_get_angle_degrees(void);
+
+/**
+ * @brief Obtiene el ángulo actual del encoder en radianes.
  * 
- * @param arg Argumentos pasados a la tarea (no se usa).
- 
-void pulse_counter_task(void *arg);*/
+ * @return Ángulo en radianes (float). 0 = punto de equilibrio.
+ */
+float pulse_counter_get_angle_radians(void);
 
 /**
  * @brief Inicializa el hardware del contador de pulsos (PCNT y GPIOs).
@@ -32,4 +35,4 @@ void pulse_counter_task(void *arg);*/
  */
 void pulse_counter_init(void);
 
-#endif // PULSE_COUNTER_H
+#endif
