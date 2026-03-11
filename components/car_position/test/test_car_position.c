@@ -12,19 +12,19 @@ TEST_CASE("Zero position at start", "[car]") {
 }
 
 TEST_CASE("Pulses to meters conversion", "[car]") {
-    car_position_set_pulses(37200);
+    car_position_set_pulses(CAR_POSITION_PULSES_PER_METER);
     float result = car_position_get_meters();
     TEST_ASSERT_FLOAT_WITHIN(EPSILON, 1.0f, result);
 }
 
 TEST_CASE("Pulses to centimeters conversion", "[car]") {
-    car_position_set_pulses(372);
+    car_position_set_pulses(CAR_POSITION_PULSES_PER_METER/100);
     float result = car_position_get_centimeters();
     TEST_ASSERT_FLOAT_WITHIN(EPSILON, 1.0f, result);
 }
 
 TEST_CASE("Pulses to millimeters conversion", "[car]") {
-    car_position_set_pulses(37);
+    car_position_set_pulses(CAR_POSITION_PULSES_PER_METER/1000);
     float result = car_position_get_millimeters();
     TEST_ASSERT_FLOAT_WITHIN(EPSILON, 1.0f, result);
 }
@@ -48,12 +48,12 @@ TEST_CASE("Reset position", "[car]") {
 }
 
 TEST_CASE("Negative pulses", "[car]") {
-    car_position_set_pulses(-37200);
+    car_position_set_pulses(-CAR_POSITION_PULSES_PER_METER);
     float result = car_position_get_meters();
     TEST_ASSERT_FLOAT_WITHIN(EPSILON, -1.0f, result);
 }
 
-TEST_CASE("Range meters", "[car]") {
-    car_position_set_range_meters(1.5f);
-    TEST_ASSERT_FLOAT_WITHIN(EPSILON, 1.5f, car_position_get_range_meters());
+TEST_CASE("Max range meters", "[car]") {
+    car_position_set_max_range_meters(1.5f);
+    TEST_ASSERT_FLOAT_WITHIN(EPSILON, 1.5f, car_position_get_max_range_meters());
 }

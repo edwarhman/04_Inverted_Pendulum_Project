@@ -63,13 +63,13 @@ void car_position_set_home(void) {
     ESP_LOGI(TAG, "Home establecido en posicion actual (0)");
 }
 
-float car_position_get_range_meters(void) {
+float car_position_get_max_range_meters(void) {
     return s_range_meters;
 }
 
-void car_position_set_range_meters(float range_m) {
-    s_range_meters = range_m;
-    ESP_LOGI(TAG, "Rango del carro establecido a %.3f metros", range_m);
+void car_position_set_max_range_meters(float max_range_meters) {
+    s_range_meters = max_range_meters;
+    ESP_LOGI(TAG, "Rango maximo del carro establecido a %.3f metros", max_range_meters);
 }
 
 float car_position_get_velocity_mps(void) {

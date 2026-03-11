@@ -20,8 +20,23 @@ void car_position_reset(void);
 void car_position_set_pulses(int32_t pulses);
 
 void car_position_set_home(void);
-float car_position_get_range_meters(void);
-void car_position_set_range_meters(float range_m);
+
+/**
+ * @brief Establece el rango máximo de recorrido del carro.
+ * 
+ * Representa la distancia total entre los dos finales de carrera,
+ * es decir, el recorrido máximo que puede desplazarse el carro.
+ * 
+ * @param max_range_meters Rango máximo en metros.
+ */
+void car_position_set_max_range_meters(float max_range_meters);
+
+/**
+ * @brief Obtiene el rango máximo de recorrido del carro.
+ * 
+ * @return Rango máximo en metros.
+ */
+float car_position_get_max_range_meters(void);
 
 float car_position_get_velocity_mps(void);
 float car_position_get_velocity_cmps(void);
