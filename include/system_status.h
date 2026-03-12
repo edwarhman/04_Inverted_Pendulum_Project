@@ -40,7 +40,28 @@ typedef enum
     VIEW_CALIBRATION //++
 } lcd_view_state_t;
 
+// --- AÑADIDO: ESTADO DE SELECCIÓN DE PARÁMETROS PID ---
+typedef enum
+{
+    SELECT_NONE,
+    SELECT_KP,
+    SELECT_KI,
+    SELECT_KD,
+    SELECT_COUNT
+} pid_param_select_t;
+
 extern volatile lcd_view_state_t g_lcd_view_state;
+extern volatile pid_param_select_t g_pid_param_select;
+
+/**
+ * @brief Cambia al siguiente parámetro del PID a sintonizar.
+ */
+void status_cycle_pid_param(void);
+
+/**
+ * @brief Obtiene el parámetro del PID actualmente seleccionado.
+ */
+pid_param_select_t status_get_pid_param(void);
 
 /**
  * @brief Cambia a la siguiente vista de la pantalla.

@@ -32,9 +32,29 @@ void status_cycle_lcd_view(void)
 
     // Convertimos de nuevo al tipo enum y lo guardamos
     g_lcd_view_state = (lcd_view_state_t)next_view_int;
+
+    // Resetear la selección de parámetro al cambiar de vista
+    g_pid_param_select = SELECT_NONE;
 }
 
 lcd_view_state_t status_get_lcd_view(void)
 {
     return g_lcd_view_state;
+}
+
+volatile pid_param_select_t g_pid_param_select = SELECT_NONE;
+
+void status_cycle_pid_param(void)
+{
+    int next_param_int = (int)g_pid_param_select + 1;
+    if (next_param_int >= SELECT_COUNT)
+    {
+        next_param_int = 0; // Vuelve a SELECT_NONE
+    }
+    g_pid_param_select = (pid_param_select_t)next_param_int;
+}
+
+pid_param_select_t status_get_pid_param(void)
+{
+    return g_pid_param_select;
 }

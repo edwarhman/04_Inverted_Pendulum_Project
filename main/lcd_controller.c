@@ -211,10 +211,37 @@ void lcd_display_task(void *pvParameters)
             // Obtenemos los valores actuales del módulo PID
             float kp = pid_get_kp();
             float ki = pid_get_ki();
-            // Mostramos Kp y Ki en la misma línea
-            lcd_printf_line(0, "Kp:%.2f Ki:%.2f", kp, ki);
             float kd = pid_get_kd();
-            lcd_printf_line(1, "Kd: %.2f", kd);
+            
+            // Obtenemos qué parámetro estamos editando actualmente
+            pid_param_select_t selected_param = status_get_pid_param();
+            
+            // Efecto de parpadeo (500ms on, 500ms off)
+            bool blink_show = (xTaskGetTickCount() * portTICK_PERIOD_MS) % 1000 < 500;
+            
+            // Renderizamos Kp (Línea 0)
+            if (selected_param == SELECT_KP && !blink_show) {
+                // Si el Kp está seleccionado y toca "apagar", mostramos espacios
+                // Asumimos un máximo de 5 caracteres para "Kp:XX.X" para simplificar y alinear después con " Ki:"
+                char temp_line[21];
+                snprintf(temp_line, sizeof(temp_line), "Kp:     Ki:%.2f", ki);
+                lcd_printf_line(0, temp_line);
+            } else if (selected_param == SELECT_KI && !blink_show) {
+                // Si el Ki está seleccionado y toca apagar
+                char temp_line[21];
+                snprintf(temp_line, sizeof(temp_line), "Kp:%.2f Ki:    ", kp);
+                lcd_printf_line(0, temp_line);
+            } else {
+                // Normal
+                lcd_printf_line(0, "Kp:%.2f Ki:%.2f", kp, ki);
+            }
+            
+            // Renderizamos Kd (Línea 1)
+            if (selected_param == SELECT_KD && !blink_show) {
+                lcd_printf_line(1, "Kd:     ");
+            } else {
+                lcd_printf_line(1, "Kd: %.2f", kd);
+            }
             break;
         }
 

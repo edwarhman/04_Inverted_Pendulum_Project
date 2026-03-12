@@ -137,13 +137,18 @@ void button_handler_task(void *arg) {
     }
     last_button_state = current_button_state;
 
-    // Solo permitimos el movimiento manual si el PID está explícitamente
+    // Solo permitimos el movimiento manual si el PID está explícitamente y NO estamos en la vista de sintonización
     // deshabilitado
-    if (!pid_is_enabled()) {
+    if (!pid_is_enabled() && status_get_lcd_view() != VIEW_PID_GAINS) {
 
       // --- LÓGICA DE CALIBRACIÓN (HOMING) ---
       if (is_command_button_pressed(CALIBRATION_BUTTON_GPIO)) {
-        ESP_LOGW(TAG, "--- INICIANDO RUTINA DE CALIBRACIÓN DE LÍMITES ---");
+        if(status_get_lcd_view() == VIEW_PID_GAINS) {
+            // Si estamos en la vista de ganancias, ciclar entre Kp, Ki y Kd
+            status_cycle_pid_param();
+            ESP_LOGI(TAG, "Parámetro PID seleccionado: %d", status_get_pid_param());
+        } else {
+            ESP_LOGW(TAG, "--- INICIANDO RUTINA DE CALIBRACIÓN DE LÍMITES ---");
 
         // guardamos vista actual
         int actual_view_int = (int)g_lcd_view_state;
@@ -224,6 +229,7 @@ void button_handler_task(void *arg) {
 
         // devolvemos a la vista actual antes de la calibracion
         g_lcd_view_state = (lcd_view_state_t)actual_view_int;
+        } // fin de else
       }
 
       // Leemos el estado de los botones de movimiento manual
@@ -265,9 +271,40 @@ void button_handler_task(void *arg) {
         }
       }
     } else {
-      // Si el PID está activado, nos aseguramos de que el estado manual esté
-      // limpio
+      // Si el PID está activado o estamos sintonizando parámetros, 
+      // nos aseguramos de que el estado manual esté limpio y evaluamos sintonización
       status_set_manual_move_state(MANUAL_MOVE_NONE);
+      
+      if (status_get_lcd_view() == VIEW_PID_GAINS) {
+          // Lógica de sintonización
+          if (is_command_button_pressed(CALIBRATION_BUTTON_GPIO)) {
+              status_cycle_pid_param();
+              ESP_LOGI(TAG, "Parámetro PID seleccionado: %d", status_get_pid_param());
+          }
+          
+          pid_param_select_t selected_param = status_get_pid_param();
+          
+          if (selected_param != SELECT_NONE) {
+              int left_button_state = gpio_get_level(MANUAL_LEFT_BUTTON_GPIO);
+              int right_button_state = gpio_get_level(MANUAL_RIGHT_BUTTON_GPIO);
+              
+              if (right_button_state == 0 && left_button_state == 1) {
+                  // Incrementar
+                  if (selected_param == SELECT_KP) pid_set_kp(pid_get_kp() + 0.1f);
+                  else if (selected_param == SELECT_KI) pid_set_ki(pid_get_ki() + 0.01f);
+                  else if (selected_param == SELECT_KD) pid_set_kd(pid_get_kd() + 0.1f);
+                  
+                  vTaskDelay(pdMS_TO_TICKS(150)); // Delay for continuous tuning
+              } else if (left_button_state == 0 && right_button_state == 1) {
+                  // Decrementar
+                  if (selected_param == SELECT_KP) pid_set_kp(pid_get_kp() - 0.1f);
+                  else if (selected_param == SELECT_KI) pid_set_ki(pid_get_ki() - 0.01f);
+                  else if (selected_param == SELECT_KD) pid_set_kd(pid_get_kd() - 0.1f);
+                  
+                  vTaskDelay(pdMS_TO_TICKS(150)); // Delay for continuous tuning
+              }
+          }
+      }
     }
 
     vTaskDelay(pdMS_TO_TICKS(20)); // Sondeo mayor o igual a 10ms 10ms
