@@ -8,6 +8,36 @@
 // la posición del carro
 extern volatile int32_t g_car_position_pulses;
 
+typedef struct
+{
+    // Parámetros de configuración
+    float kp, ki, kd;
+    float dt; // Tiempo de muestreo constante (en segundos)
+
+    // Límites de Saturación
+    float out_max;
+    float out_min;
+
+    // Estado interno (Memoria)
+    float integral;
+    float ultimo_error;
+} PIDController;
+
+/**
+ * @brief Inicializa el controlador PID con los parámetros dados.
+ */
+void PID_Init(PIDController *pid, float p, float i, float d, float dt, float min, float max);
+
+/**
+ * @brief Calcula la salida del controlador PID.
+ */
+float PID_Compute(PIDController *pid, float objetivo, float medicion_actual);
+
+/**
+ * @brief Resetea el estado interno del controlador PID (integral y último error).
+ */
+void PID_Reset(PIDController *pid);
+
 /**
  * @brief Tarea principal del controlador PID.
  * Se ejecuta a una frecuencia fija para leer el sensor y controlar el motor.
