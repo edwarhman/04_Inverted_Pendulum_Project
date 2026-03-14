@@ -212,22 +212,8 @@ void pid_controller_task(void *arg) {
     // Usar PID_Compute en lugar del cálculo manual
     float output = PID_Compute(&g_pid_controller, dynamic_setpoint, current_angle);
 
-    // 6. ACTUAR: Si la salida no es cero, enviar comando al motor
-    if (fabs(output) > 0.01) {
-      int direction = (output > 0) ? 1 : 0;
-      int frequency = calculate_motor_frequency(output);
-
-      // Enviar el comando de velocidad continua
-      motor_command_t cmd = {.num_pulses = 0, // Ignorado por el nuevo enfoque
-                             .frequency = frequency,
-                             .direction = direction};
-      xQueueOverwrite(motor_command_queue, &cmd);
-    } else {
-      // Si la salida del PID es cercana a cero, apagamos el motor.
-      motor_command_t stop_cmd = {
-          .num_pulses = 0, .frequency = 0, .direction = 0};
-      xQueueOverwrite(motor_command_queue, &stop_cmd);
-    }
+    // 6. ACTUAR: Establecer la velocidad del motor
+    set_motor_velocity(output);
     // g_last_error = error; // Guardamos para el futuro término Derivativo
   }
 }
@@ -328,4 +314,29 @@ int velocity_to_motor_frequency(float linear_velocity) {
     }
     
     return (int)frequency;
+}
+
+/**
+ * @brief Establece la velocidad del motor a una velocidad objetivo.
+ * Si la velocidad es cero o cercana a cero, detiene el motor.
+ * De lo contrario, calcula la dirección y frecuencia y envía el comando al motor.
+ * @param velocity La velocidad deseada
+ */
+void set_motor_velocity(float velocity) {
+    // 6. ACTUAR: Si la salida no es cero, enviar comando al motor
+    if (fabs(velocity) > 0.01) {
+      int direction = (velocity > 0) ? 1 : 0;
+      int frequency = calculate_motor_frequency(velocity);
+
+      // Enviar el comando de velocidad continua
+      motor_command_t cmd = {.num_pulses = 0, // Ignorado por el nuevo enfoque
+                             .frequency = frequency,
+                             .direction = direction};
+      xQueueOverwrite(motor_command_queue, &cmd);
+    } else {
+      // Si la salida del PID es cercana a cero, apagamos el motor.
+      motor_command_t stop_cmd = {
+          .num_pulses = 0, .frequency = 0, .direction = 0};
+      xQueueOverwrite(motor_command_queue, &stop_cmd);
+    }
 }

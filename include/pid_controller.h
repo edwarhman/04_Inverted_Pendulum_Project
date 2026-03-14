@@ -111,6 +111,13 @@ bool pid_is_enabled(void);
 // para parada de emergencia.
 
 void pid_force_disable(void);
+/**
+ * @brief Establece la velocidad del motor.
+ * Si la velocidad es cero o cercana a cero, detiene el motor.
+ * De lo contrario, calcula la dirección y frecuencia y envía el comando al motor.
+ * @param velocity La velocidad deseada (salida del PID)
+ */
+void set_motor_velocity(float velocity);
 
 // --- AÑADIDO: Funciones para obtener los valores de las ganancias ---
 float pid_get_kp(void);
