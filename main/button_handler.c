@@ -41,6 +41,12 @@ manual (alta) #define MANUAL_MOVE_PULSES   400   // Cantidad de pulsos por ciclo
 #define JOG_PULSES 400             // Pulsos por ciclo de jog
 #define CALIBRATION_SPEED_HZ 20000 // Velocidad constante para la calibración
 
+// --- PARÁMETROS DE SINTONÍA PID ---
+#define PID_SHORT_PRESS_STEP 0.1f        // Paso para pulsación corta (1 paso)
+#define PID_LONG_PRESS_STEP 0.3f         // Paso para pulsación larga (3 pasos)
+#define PID_LONG_PRESS_THRESHOLD 20      // Umbral para detectar pulsación larga (20 * 10ms = 200ms)
+#define PID_PRESS_DURATION_MAX 30        // Duración máxima de verificación (30 * 10ms = 300ms)
+
 static const char *TAG = "BUTTON_HANDLER";
 // Para saber si el PID está activo, llamaremos a una función.
 // extern bool g_pid_enabled;
@@ -288,18 +294,37 @@ void button_handler_task(void *arg) {
               int left_button_state = gpio_get_level(MANUAL_LEFT_BUTTON_GPIO);
               int right_button_state = gpio_get_level(MANUAL_RIGHT_BUTTON_GPIO);
               
+              // Handle right button (increment)
               if (right_button_state == 0 && left_button_state == 1) {
-                  // Incrementar
-                  if (selected_param == SELECT_KP) pid_set_kp(pid_get_kp() + 0.1f);
-                  else if (selected_param == SELECT_KI) pid_set_ki(pid_get_ki() + 0.01f);
-                  else if (selected_param == SELECT_KD) pid_set_kd(pid_get_kd() + 0.1f);
+                  // Detect long press for faster increment
+                  int press_duration = 0;
+                  while (gpio_get_level(MANUAL_RIGHT_BUTTON_GPIO) == 0 && press_duration < PID_PRESS_DURATION_MAX) {
+                      vTaskDelay(pdMS_TO_TICKS(10));
+                      press_duration++;
+                  }
+                  
+                  float step = (press_duration >= PID_LONG_PRESS_THRESHOLD) ? PID_LONG_PRESS_STEP : PID_SHORT_PRESS_STEP;
+                  
+                  if (selected_param == SELECT_KP) pid_set_kp(pid_get_kp() + step);
+                  else if (selected_param == SELECT_KI) pid_set_ki(pid_get_ki() + step);
+                  else if (selected_param == SELECT_KD) pid_set_kd(pid_get_kd() + step);
                   
                   vTaskDelay(pdMS_TO_TICKS(150)); // Delay for continuous tuning
-              } else if (left_button_state == 0 && right_button_state == 1) {
-                  // Decrementar
-                  if (selected_param == SELECT_KP) pid_set_kp(pid_get_kp() - 0.1f);
-                  else if (selected_param == SELECT_KI) pid_set_ki(pid_get_ki() - 0.01f);
-                  else if (selected_param == SELECT_KD) pid_set_kd(pid_get_kd() - 0.1f);
+              } 
+              // Handle left button (decrement)
+              else if (left_button_state == 0 && right_button_state == 1) {
+                  // Detect long press for faster decrement
+                  int press_duration = 0;
+                  while (gpio_get_level(MANUAL_LEFT_BUTTON_GPIO) == 0 && press_duration < PID_PRESS_DURATION_MAX) {
+                      vTaskDelay(pdMS_TO_TICKS(10));
+                      press_duration++;
+                  }
+                  
+                  float step = (press_duration >= PID_LONG_PRESS_THRESHOLD) ? PID_LONG_PRESS_STEP : PID_SHORT_PRESS_STEP;
+                  
+                  if (selected_param == SELECT_KP) pid_set_kp(pid_get_kp() - step);
+                  else if (selected_param == SELECT_KI) pid_set_ki(pid_get_ki() - step);
+                  else if (selected_param == SELECT_KD) pid_set_kd(pid_get_kd() - step);
                   
                   vTaskDelay(pdMS_TO_TICKS(150)); // Delay for continuous tuning
               }
