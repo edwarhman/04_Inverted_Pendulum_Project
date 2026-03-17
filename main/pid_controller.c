@@ -81,6 +81,7 @@
 // Calculamos el tiempo del ciclo en segundos (dt) una sola vez.
 // static const float PID_LOOP_PERIOD_S = PID_LOOP_PERIOD_MS / 1000.0f;
 static const char *TAG = "PID_CONTROLLER";
+float const loop_period_in_seconds = PID_LOOP_PERIOD_MS / 1000.0f;
 
 // Variables de estado globales para el controlador
 // para 3200pulse/rev kp=5, ki=1, kd=10, para 2000pulse/rev kp=70, ki=1, kd=10,
@@ -88,6 +89,7 @@ static const char *TAG = "PID_CONTROLLER";
 static volatile bool g_pid_enabled = false;
 static PIDController g_pid_controller;        // Controlador del ángulo (PID completo)
 static PIDController g_position_controller;   // Controlador de posición (solo P)
+static PIDController g_velocity_integrator;   // Integrador: convierte aceleración a velocidad (solo I)
 
 // --- Variable para el angulo del pendulo ---
 static volatile int16_t g_absolute_setpoint = 0; // Se inicializa en 0 por defecto
@@ -124,9 +126,13 @@ void pid_toggle_enable(void) {
       // Resetear el estado interno
       PID_Reset(&g_pid_controller);
     }
-    
+
     // Resetear también el controlador de posición
     PID_Reset(&g_position_controller);
+    
+    // Resetear el integrador de velocidad
+    PID_Reset(&g_velocity_integrator);
+    
     ESP_LOGW(TAG, "Control PID HABILITADO");
   } else {
     motor_command_t stop_cmd = {
@@ -159,6 +165,7 @@ void pid_force_disable(void) {
     // Reseteamos el estado para un futuro arranque limpio
     PID_Reset(&g_pid_controller);
     PID_Reset(&g_position_controller);
+    PID_Reset(&g_velocity_integrator);
 
     motor_command_t stop_cmd = {
         .num_pulses = 0, .frequency = 0, .direction = 0};
@@ -176,10 +183,14 @@ void pid_controller_task(void *arg) {
   TickType_t last_wake_time = xTaskGetTickCount();
 
   // Inicializar el controlador PID
-  PID_Init(&g_pid_controller, 41.0f, 0.4f, 70.0f, PID_LOOP_PERIOD_MS / 1000.0f, -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
-  
+  PID_Init(&g_pid_controller, 41.0f, 0.4f, 70.0f, loop_period_in_seconds, -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
+
   // Inicializar el controlador de posición (solo proporcional)
-  PID_Init(&g_position_controller, POSITION_CONTROL_GAIN, 0.0f, 0.0f, PID_LOOP_PERIOD_MS / 1000.0f, -MAX_SETPOINT_OFFSET, MAX_SETPOINT_OFFSET);
+  PID_Init(&g_position_controller, POSITION_CONTROL_GAIN, 0.0f, 0.0f, loop_period_in_seconds, -MAX_SETPOINT_OFFSET, MAX_SETPOINT_OFFSET);
+
+  // Inicializar el integrador de velocidad (solo I, ganancia 1)
+  // Convierte la aceleración (salida del PID) a velocidad
+  PID_Init(&g_velocity_integrator, 0.0f, 1, 0.0f, loop_period_in_seconds, -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
 
   // Reseteamos el error anterior al habilitar para evitar un pico inicial en D
   pid_toggle_enable(); // Habilita y resetea
@@ -191,6 +202,7 @@ void pid_controller_task(void *arg) {
     if (!g_pid_enabled) {
       PID_Reset(&g_pid_controller);
       PID_Reset(&g_position_controller);
+      PID_Reset(&g_velocity_integrator);
       continue;
     }
 
@@ -200,20 +212,23 @@ void pid_controller_task(void *arg) {
     // --- Lógica de control de posición usando PID_Compute ---
     // El setpoint de posición es 0 (centro del riel)
     float position_setpoint = 0.0f;
-    
+
     // Calcular el offset usando el controlador de posición (solo proporcional)
     float setpoint_offset = PID_Compute(&g_position_controller, position_setpoint, g_car_position_pulses);
-    
+
     // Calcular el setpoint dinámico
     int16_t dynamic_setpoint = g_absolute_setpoint + (int16_t)setpoint_offset;
 
     // 2. CALCULAR ERROR de ángulo usando el setpoint dinámico
-    // Usar PID_Compute en lugar del cálculo manual
-    float output = PID_Compute(&g_pid_controller, dynamic_setpoint, current_angle);
+    // La salida del PID es aceleración, se integra a velocidad
+    float acceleration = PID_Compute(&g_pid_controller, dynamic_setpoint, current_angle);
+    
+    // Integrador: convierte aceleración a velocidad (PID con solo Ki=1)
+    // El "error" para el integrador es la aceleración de salida del PID de ángulo
+    float velocity = PID_Compute(&g_velocity_integrator, 0.0f, -acceleration);
 
     // 6. ACTUAR: Establecer la velocidad del motor
-    set_motor_velocity(output);
-    // g_last_error = error; // Guardamos para el futuro término Derivativo
+    set_motor_velocity(velocity);
   }
 }
 
