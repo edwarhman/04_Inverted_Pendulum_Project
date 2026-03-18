@@ -87,7 +87,7 @@ float const loop_period_in_seconds = PID_LOOP_PERIOD_MS / 1000.0f;
 // para 3200pulse/rev kp=5, ki=1, kd=10, para 2000pulse/rev kp=70, ki=1, kd=10,
 // para 10000pulse/rev kp=41, ki=0.4, kd=70
 static volatile bool g_pid_enabled = false;
-static PIDController g_pid_controller;        // Controlador del ángulo (PID completo)
+static PIDController g_angle_controller;        // Controlador del ángulo (PID completo)
 static PIDController g_position_controller;   // Controlador de posición (solo P)
 static PIDController g_velocity_integrator;   // Integrador: convierte aceleración a velocidad (solo I)
 
@@ -98,9 +98,9 @@ static volatile int16_t g_absolute_setpoint = 0; // Se inicializa en 0 por defec
 volatile int32_t g_car_position_pulses = 0; // pwm_generator puede actualizarla
 
 // --- AÑADIDO: Implementación de las nuevas funciones ---
-float pid_get_kp(void) { return g_pid_controller.kp; }
-float pid_get_ki(void) { return g_pid_controller.ki; }
-float pid_get_kd(void) { return g_pid_controller.kd; }
+float pid_get_kp(void) { return g_angle_controller.kp; }
+float pid_get_ki(void) { return g_angle_controller.ki; }
+float pid_get_kd(void) { return g_angle_controller.kd; }
 
 // --- Implementación de funciones públicas ---
 
@@ -120,11 +120,11 @@ void pid_toggle_enable(void) {
     // g_absolute_setpoint = current_position;
 
     // Inicializar el controlador PID si no está inicializado
-    if (g_pid_controller.dt == 0.0f) {
-      PID_Init(&g_pid_controller, 41.0f, 0.4f, 70.0f, PID_LOOP_PERIOD_MS / 1000.0f, -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
+    if (g_angle_controller.dt == 0.0f) {
+      PID_Init(&g_angle_controller, 41.0f, 0.4f, 70.0f, PID_LOOP_PERIOD_MS / 1000.0f, -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
     } else {
       // Resetear el estado interno
-      PID_Reset(&g_pid_controller);
+      PID_Reset(&g_angle_controller);
     }
 
     // Resetear también el controlador de posición
@@ -143,16 +143,16 @@ void pid_toggle_enable(void) {
 }
 
 void pid_set_kp(float kp) {
-  g_pid_controller.kp = kp;
-  ESP_LOGI(TAG, "Kp actualizado a: %f", g_pid_controller.kp);
+  g_angle_controller.kp = kp;
+  ESP_LOGI(TAG, "Kp actualizado a: %f", g_angle_controller.kp);
 }
 void pid_set_ki(float ki) {
-  g_pid_controller.ki = ki;
-  ESP_LOGI(TAG, "Ki actualizado a: %f", g_pid_controller.ki);
+  g_angle_controller.ki = ki;
+  ESP_LOGI(TAG, "Ki actualizado a: %f", g_angle_controller.ki);
 }
 void pid_set_kd(float kd) {
-  g_pid_controller.kd = kd;
-  ESP_LOGI(TAG, "Kd actualizado a: %f", g_pid_controller.kd);
+  g_angle_controller.kd = kd;
+  ESP_LOGI(TAG, "Kd actualizado a: %f", g_angle_controller.kd);
 }
 
 // --- AÑADIDO: Implementación de la nueva función 'getter' ---
@@ -163,7 +163,7 @@ void pid_force_disable(void) {
   if (g_pid_enabled) { // Solo actúa y muestra el mensaje si estaba habilitado
     g_pid_enabled = false;
     // Reseteamos el estado para un futuro arranque limpio
-    PID_Reset(&g_pid_controller);
+    PID_Reset(&g_angle_controller);
     PID_Reset(&g_position_controller);
     PID_Reset(&g_velocity_integrator);
 
@@ -183,7 +183,7 @@ void pid_controller_task(void *arg) {
   TickType_t last_wake_time = xTaskGetTickCount();
 
   // Inicializar el controlador PID
-  PID_Init(&g_pid_controller, 41.0f, 0.4f, 70.0f, loop_period_in_seconds, -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
+  PID_Init(&g_angle_controller, 41.0f, 0.4f, 70.0f, loop_period_in_seconds, -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
 
   // Inicializar el controlador de posición (solo proporcional)
   PID_Init(&g_position_controller, POSITION_CONTROL_GAIN, 0.0f, 0.0f, loop_period_in_seconds, -MAX_SETPOINT_OFFSET, MAX_SETPOINT_OFFSET);
@@ -200,7 +200,7 @@ void pid_controller_task(void *arg) {
     vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(PID_LOOP_PERIOD_MS));
 
     if (!g_pid_enabled) {
-      PID_Reset(&g_pid_controller);
+      PID_Reset(&g_angle_controller);
       PID_Reset(&g_position_controller);
       PID_Reset(&g_velocity_integrator);
       continue;
@@ -214,14 +214,14 @@ void pid_controller_task(void *arg) {
     float position_setpoint = 0.0f;
 
     // Calcular el offset usando el controlador de posición (solo proporcional)
-    float setpoint_offset = PID_Compute(&g_position_controller, position_setpoint, g_car_position_pulses);
+    float angle_setpoint_offset = PID_Compute(&g_position_controller, position_setpoint, g_car_position_pulses);
 
     // Calcular el setpoint dinámico
-    int16_t dynamic_setpoint = g_absolute_setpoint + (int16_t)setpoint_offset;
+    int16_t dynamic_angle_setpoint = g_absolute_setpoint + (int16_t)angle_setpoint_offset;
 
     // 2. CALCULAR ERROR de ángulo usando el setpoint dinámico
     // La salida del PID es aceleración, se integra a velocidad
-    float acceleration = PID_Compute(&g_pid_controller, dynamic_setpoint, current_angle);
+    float acceleration = PID_Compute(&g_angle_controller, dynamic_angle_setpoint, current_angle);
     
     // Integrador: convierte aceleración a velocidad (PID con solo Ki=1)
     // El "error" para el integrador es la aceleración de salida del PID de ángulo
