@@ -12,7 +12,6 @@
 #include "uart_echo.h" // Incluimos para acceder a la cola y la estructura de comando
 #include <stdio.h>
 
-
 // --- PINES DE LOS BOTONES ---
 #define VIEW_CYCLE_BUTTON_GPIO GPIO_NUM_19 // ¡NUEVO BOTÓN!
 #define CALIBRATION_BUTTON_GPIO GPIO_NUM_15
@@ -42,10 +41,12 @@ manual (alta) #define MANUAL_MOVE_PULSES   400   // Cantidad de pulsos por ciclo
 #define CALIBRATION_SPEED_HZ 20000 // Velocidad constante para la calibración
 
 // --- PARÁMETROS DE SINTONÍA PID ---
-#define PID_SHORT_PRESS_STEP 0.1f        // Paso para pulsación corta (1 paso)
-#define PID_LONG_PRESS_STEP 0.3f         // Paso para pulsación larga (3 pasos)
-#define PID_LONG_PRESS_THRESHOLD 20      // Umbral para detectar pulsación larga (20 * 10ms = 200ms)
-#define PID_PRESS_DURATION_MAX 30        // Duración máxima de verificación (30 * 10ms = 300ms)
+#define PID_SHORT_PRESS_STEP 0.1f // Paso para pulsación corta (1 paso)
+#define PID_LONG_PRESS_STEP 10.0f // Paso para pulsación larga (3 pasos)
+#define PID_LONG_PRESS_THRESHOLD                                               \
+  20 // Umbral para detectar pulsación larga (20 * 10ms = 200ms)
+#define PID_PRESS_DURATION_MAX                                                 \
+  30 // Duración máxima de verificación (30 * 10ms = 300ms)
 
 static const char *TAG = "BUTTON_HANDLER";
 // Para saber si el PID está activo, llamaremos a una función.
@@ -143,98 +144,104 @@ void button_handler_task(void *arg) {
     }
     last_button_state = current_button_state;
 
-    // Solo permitimos el movimiento manual si el PID está explícitamente y NO estamos en la vista de sintonización
-    // deshabilitado
+    // Solo permitimos el movimiento manual si el PID está explícitamente y NO
+    // estamos en la vista de sintonización deshabilitado
     if (!pid_is_enabled() && status_get_lcd_view() != VIEW_PID_GAINS) {
 
       // --- LÓGICA DE CALIBRACIÓN (HOMING) ---
       if (is_command_button_pressed(CALIBRATION_BUTTON_GPIO)) {
-        if(status_get_lcd_view() == VIEW_PID_GAINS) {
-            // Si estamos en la vista de ganancias, ciclar entre Kp, Ki y Kd
-            status_cycle_pid_param();
-            ESP_LOGI(TAG, "Parámetro PID seleccionado: %d", status_get_pid_param());
+        if (status_get_lcd_view() == VIEW_PID_GAINS) {
+          // Si estamos en la vista de ganancias, ciclar entre Kp, Ki y Kd
+          status_cycle_pid_param();
+          ESP_LOGI(TAG, "Parámetro PID seleccionado: %d",
+                   status_get_pid_param());
         } else {
-            ESP_LOGW(TAG, "--- INICIANDO RUTINA DE CALIBRACIÓN DE LÍMITES ---");
+          ESP_LOGW(TAG, "--- INICIANDO RUTINA DE CALIBRACIÓN DE LÍMITES ---");
 
-        // guardamos vista actual
-        int actual_view_int = (int)g_lcd_view_state;
-        g_lcd_view_state = VIEW_CALIBRATION;
+          // guardamos vista actual
+          int actual_view_int = (int)g_lcd_view_state;
+          g_lcd_view_state = VIEW_CALIBRATION;
 
-        int32_t limit_left_pos, limit_right_pos;
-        g_car_position_pulses = 0;
+          int32_t limit_left_pos, limit_right_pos;
+          g_car_position_pulses = 0;
 
-        // 1. Mover a la izquierda hasta que el final de carrera se active
-        ESP_LOGI(TAG, "Buscando límite derecho (GPIO %d)...",
-                 EMERGENCY_STOP_GPIO_RIGHT);
-        // Leemos el estado del pin directamente. El bucle continúa MIENTRAS el
-        // botón NO esté presionado.
-        while (gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT) == 1) {
-          int pulses_moved = execute_movement(JOG_PULSES, CALIBRATION_SPEED_HZ,
-                                              0); // Dir 0 = Izquierda
-          g_car_position_pulses -= pulses_moved;
-        }
-        // --- El bucle se rompe en cuanto el pin se va a BAJO ---
-        limit_left_pos = g_car_position_pulses;
-        ESP_LOGW(TAG, "Límite 1 detectado en: %ld pulsos", limit_left_pos);
-        vTaskDelay(pdMS_TO_TICKS(200)); // Pausa para estabilizar
+          // 1. Mover a la izquierda hasta que el final de carrera se active
+          ESP_LOGI(TAG, "Buscando límite derecho (GPIO %d)...",
+                   EMERGENCY_STOP_GPIO_RIGHT);
+          // Leemos el estado del pin directamente. El bucle continúa MIENTRAS
+          // el botón NO esté presionado.
+          while (gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT) == 1) {
+            int pulses_moved =
+                execute_movement(JOG_PULSES, CALIBRATION_SPEED_HZ,
+                                 0); // Dir 0 = Izquierda
+            g_car_position_pulses -= pulses_moved;
+          }
+          // --- El bucle se rompe en cuanto el pin se va a BAJO ---
+          limit_left_pos = g_car_position_pulses;
+          ESP_LOGW(TAG, "Límite 1 detectado en: %ld pulsos", limit_left_pos);
+          vTaskDelay(pdMS_TO_TICKS(200)); // Pausa para estabilizar
 
-        // 2. Mover a la derecha hasta que el final de carrera se active
-        ESP_LOGI(TAG, "Buscando límite derecho...");
-        while (gpio_get_level(EMERGENCY_STOP_GPIO_LEFT) == 1) {
-          int pulses_moved = execute_movement(JOG_PULSES, CALIBRATION_SPEED_HZ,
-                                              1); // Dir 1 = Derecha
-          g_car_position_pulses += pulses_moved;
-        }
-        limit_right_pos = g_car_position_pulses;
-        ESP_LOGW(TAG, "Límite 2 detectado en: %ld pulsos", limit_right_pos);
-        vTaskDelay(pdMS_TO_TICKS(200));
+          // 2. Mover a la derecha hasta que el final de carrera se active
+          ESP_LOGI(TAG, "Buscando límite derecho...");
+          while (gpio_get_level(EMERGENCY_STOP_GPIO_LEFT) == 1) {
+            int pulses_moved =
+                execute_movement(JOG_PULSES, CALIBRATION_SPEED_HZ,
+                                 1); // Dir 1 = Derecha
+            g_car_position_pulses += pulses_moved;
+          }
+          limit_right_pos = g_car_position_pulses;
+          ESP_LOGW(TAG, "Límite 2 detectado en: %ld pulsos", limit_right_pos);
+          vTaskDelay(pdMS_TO_TICKS(200));
 
-        // 3. Calcular el centro y mover el carro
-        int32_t travel_range = abs(limit_right_pos - limit_left_pos);
-        int32_t center_pos = limit_left_pos + (travel_range / 2);
-        ESP_LOGW(TAG, "Recorrido: %ld pulsos. Centro: %ld", travel_range,
-                 center_pos);
+          // 3. Calcular el centro y mover el carro
+          int32_t travel_range = abs(limit_right_pos - limit_left_pos);
+          int32_t center_pos = limit_left_pos + (travel_range / 2);
+          ESP_LOGW(TAG, "Recorrido: %ld pulsos. Centro: %ld", travel_range,
+                   center_pos);
 
-        ESP_LOGI(TAG, "Moviendo al centro...");
+          ESP_LOGI(TAG, "Moviendo al centro...");
 
-        int32_t pulses_to_center = abs(center_pos - g_car_position_pulses);
-        int direction_to_center = (center_pos > g_car_position_pulses) ? 1 : 0;
-        execute_movement(pulses_to_center, JOG_SPEED_HZ, direction_to_center);
-        g_car_position_pulses = 0;
+          int32_t pulses_to_center = abs(center_pos - g_car_position_pulses);
+          int direction_to_center =
+              (center_pos > g_car_position_pulses) ? 1 : 0;
+          execute_movement(pulses_to_center, JOG_SPEED_HZ, direction_to_center);
+          g_car_position_pulses = 0;
 
-        ESP_LOGW(TAG, "--- CALIBRACIÓN FINALIZADA. Posición: %ld ---",
-                 g_car_position_pulses);
-        ESP_LOGI(TAG,
-                 "Esperando 5 segundos para estabilizar..."); // antes en dos
-                                                              // segundos
+          ESP_LOGW(TAG, "--- CALIBRACIÓN FINALIZADA. Posición: %ld ---",
+                   g_car_position_pulses);
+          ESP_LOGI(TAG,
+                   "Esperando 5 segundos para estabilizar..."); // antes en dos
+                                                                // segundos
 
-        vTaskDelay(pdMS_TO_TICKS(5000));
+          vTaskDelay(pdMS_TO_TICKS(5000));
 
-        // --- AÑADIDO: Cálculo y establecimiento del setpoint vertical ---
-        ESP_LOGI(TAG, "Calculando setpoint vertical...");
+          // --- AÑADIDO: Cálculo y establecimiento del setpoint vertical ---
+          ESP_LOGI(TAG, "Calculando setpoint vertical...");
 
-        // 1. Leer la posición del encoder con el péndulo caído y centrado.
-        int16_t fallen_pos = pulse_counter_get_value();
-        ESP_LOGI(TAG, "Posición 'caída' detectada: %d", fallen_pos);
+          // 1. Leer la posición del encoder con el péndulo caído y centrado.
+          int16_t fallen_pos = pulse_counter_get_value();
+          ESP_LOGI(TAG, "Posición 'caída' detectada: %d", fallen_pos);
 
-        // 2. Calcular la posición vertical (180 grados de diferencia).
-        // Usamos el operador de módulo para manejar el "wrap-around" del
-        // contador de 16 bits.
-        int32_t vertical_setpoint_32 = fallen_pos + (ENCODER_RESOLUTION / 2);
-        int16_t vertical_setpoint_16 =
-            (int16_t)vertical_setpoint_32; // Casting para el rango correcto
+          // 2. Calcular la posición vertical (180 grados de diferencia).
+          // Usamos el operador de módulo para manejar el "wrap-around" del
+          // contador de 16 bits.
+          int32_t vertical_setpoint_32 = fallen_pos + (ENCODER_RESOLUTION / 2);
+          int16_t vertical_setpoint_16 =
+              (int16_t)vertical_setpoint_32; // Casting para el rango correcto
 
-        // 3. Llamar a la función del PID para establecer el setpoint calculado.
-        pid_set_absolute_setpoint(vertical_setpoint_16);
+          // 3. Llamar a la función del PID para establecer el setpoint
+          // calculado.
+          pid_set_absolute_setpoint(vertical_setpoint_16);
 
-        ESP_LOGW(TAG,
-                 "Setpoint vertical pre-calculado: %d. El sistema está listo.",
-                 vertical_setpoint_16);
-        ESP_LOGW(TAG,
-                 "Levante el péndulo y presione el botón de habilitar PID.");
+          ESP_LOGW(
+              TAG,
+              "Setpoint vertical pre-calculado: %d. El sistema está listo.",
+              vertical_setpoint_16);
+          ESP_LOGW(TAG,
+                   "Levante el péndulo y presione el botón de habilitar PID.");
 
-        // devolvemos a la vista actual antes de la calibracion
-        g_lcd_view_state = (lcd_view_state_t)actual_view_int;
+          // devolvemos a la vista actual antes de la calibracion
+          g_lcd_view_state = (lcd_view_state_t)actual_view_int;
         } // fin de else
       }
 
@@ -277,58 +284,72 @@ void button_handler_task(void *arg) {
         }
       }
     } else {
-      // Si el PID está activado o estamos sintonizando parámetros, 
-      // nos aseguramos de que el estado manual esté limpio y evaluamos sintonización
+      // Si el PID está activado o estamos sintonizando parámetros,
+      // nos aseguramos de que el estado manual esté limpio y evaluamos
+      // sintonización
       status_set_manual_move_state(MANUAL_MOVE_NONE);
-      
+
       if (status_get_lcd_view() == VIEW_PID_GAINS) {
-          // Lógica de sintonización
-          if (is_command_button_pressed(CALIBRATION_BUTTON_GPIO)) {
-              status_cycle_pid_param();
-              ESP_LOGI(TAG, "Parámetro PID seleccionado: %d", status_get_pid_param());
+        // Lógica de sintonización
+        if (is_command_button_pressed(CALIBRATION_BUTTON_GPIO)) {
+          status_cycle_pid_param();
+          ESP_LOGI(TAG, "Parámetro PID seleccionado: %d",
+                   status_get_pid_param());
+        }
+
+        pid_param_select_t selected_param = status_get_pid_param();
+
+        if (selected_param != SELECT_NONE) {
+          int left_button_state = gpio_get_level(MANUAL_LEFT_BUTTON_GPIO);
+          int right_button_state = gpio_get_level(MANUAL_RIGHT_BUTTON_GPIO);
+
+          // Handle right button (increment)
+          if (right_button_state == 0 && left_button_state == 1) {
+            // Detect long press for faster increment
+            int press_duration = 0;
+            while (gpio_get_level(MANUAL_RIGHT_BUTTON_GPIO) == 0 &&
+                   press_duration < PID_PRESS_DURATION_MAX) {
+              vTaskDelay(pdMS_TO_TICKS(10));
+              press_duration++;
+            }
+
+            float step = (press_duration >= PID_LONG_PRESS_THRESHOLD)
+                             ? PID_LONG_PRESS_STEP
+                             : PID_SHORT_PRESS_STEP;
+
+            if (selected_param == SELECT_KP)
+              pid_set_kp(pid_get_kp() + step);
+            else if (selected_param == SELECT_KI)
+              pid_set_ki(pid_get_ki() + step);
+            else if (selected_param == SELECT_KD)
+              pid_set_kd(pid_get_kd() + step);
+
+            vTaskDelay(pdMS_TO_TICKS(150)); // Delay for continuous tuning
           }
-          
-          pid_param_select_t selected_param = status_get_pid_param();
-          
-          if (selected_param != SELECT_NONE) {
-              int left_button_state = gpio_get_level(MANUAL_LEFT_BUTTON_GPIO);
-              int right_button_state = gpio_get_level(MANUAL_RIGHT_BUTTON_GPIO);
-              
-              // Handle right button (increment)
-              if (right_button_state == 0 && left_button_state == 1) {
-                  // Detect long press for faster increment
-                  int press_duration = 0;
-                  while (gpio_get_level(MANUAL_RIGHT_BUTTON_GPIO) == 0 && press_duration < PID_PRESS_DURATION_MAX) {
-                      vTaskDelay(pdMS_TO_TICKS(10));
-                      press_duration++;
-                  }
-                  
-                  float step = (press_duration >= PID_LONG_PRESS_THRESHOLD) ? PID_LONG_PRESS_STEP : PID_SHORT_PRESS_STEP;
-                  
-                  if (selected_param == SELECT_KP) pid_set_kp(pid_get_kp() + step);
-                  else if (selected_param == SELECT_KI) pid_set_ki(pid_get_ki() + step);
-                  else if (selected_param == SELECT_KD) pid_set_kd(pid_get_kd() + step);
-                  
-                  vTaskDelay(pdMS_TO_TICKS(150)); // Delay for continuous tuning
-              } 
-              // Handle left button (decrement)
-              else if (left_button_state == 0 && right_button_state == 1) {
-                  // Detect long press for faster decrement
-                  int press_duration = 0;
-                  while (gpio_get_level(MANUAL_LEFT_BUTTON_GPIO) == 0 && press_duration < PID_PRESS_DURATION_MAX) {
-                      vTaskDelay(pdMS_TO_TICKS(10));
-                      press_duration++;
-                  }
-                  
-                  float step = (press_duration >= PID_LONG_PRESS_THRESHOLD) ? PID_LONG_PRESS_STEP : PID_SHORT_PRESS_STEP;
-                  
-                  if (selected_param == SELECT_KP) pid_set_kp(pid_get_kp() - step);
-                  else if (selected_param == SELECT_KI) pid_set_ki(pid_get_ki() - step);
-                  else if (selected_param == SELECT_KD) pid_set_kd(pid_get_kd() - step);
-                  
-                  vTaskDelay(pdMS_TO_TICKS(150)); // Delay for continuous tuning
-              }
+          // Handle left button (decrement)
+          else if (left_button_state == 0 && right_button_state == 1) {
+            // Detect long press for faster decrement
+            int press_duration = 0;
+            while (gpio_get_level(MANUAL_LEFT_BUTTON_GPIO) == 0 &&
+                   press_duration < PID_PRESS_DURATION_MAX) {
+              vTaskDelay(pdMS_TO_TICKS(10));
+              press_duration++;
+            }
+
+            float step = (press_duration >= PID_LONG_PRESS_THRESHOLD)
+                             ? PID_LONG_PRESS_STEP
+                             : PID_SHORT_PRESS_STEP;
+
+            if (selected_param == SELECT_KP)
+              pid_set_kp(pid_get_kp() - step);
+            else if (selected_param == SELECT_KI)
+              pid_set_ki(pid_get_ki() - step);
+            else if (selected_param == SELECT_KD)
+              pid_set_kd(pid_get_kd() - step);
+
+            vTaskDelay(pdMS_TO_TICKS(150)); // Delay for continuous tuning
           }
+        }
       }
     }
 
