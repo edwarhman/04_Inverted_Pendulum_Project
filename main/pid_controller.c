@@ -32,19 +32,19 @@
 // este valor, lo consideramos cero. Esto es CRUCIAL para evitar que el motor
 // vibre o "tiemble" constantemente tratando de corregir errores minúsculos.
 #define DEAD_BAND_ANGLE                                                        \
-  1.5f // 1.0f//1.6f // con factor de crecimiento de 0.088° o 0.1° 1.76
+  6.0f // 1.0f//1.6f // con factor de crecimiento de 0.088° o 0.1° 1.76
 
 #define DEAD_BAND_X_CM 3 // 5
 
 // Evita que el término integral crezca indefinidamente y desestabilice el
 // sistema. Este valor debe ser menor o igual a MAX_OUTPUT_PULSES.
-#define MAX_INTEGRAL 9000.0f
+#define MAX_INTEGRAL 6000.0f
 
 // --- PARÁMETROS DEL ACTUADOR (MOTOR) ---
 // Límite máximo de pulsos que el PID puede ordenar en una sola corrección.
 // Sirve como medida de seguridad para evitar que una reacción brusca del PID
 // genere un movimiento demasiado violento.
-#define MAX_OUTPUT_PULSES 10000 // Aumentado de 1700 a 3000 para mayor salida
+#define MAX_OUTPUT_PULSES 6000.0f // Aumentado de 1700 a 3000 para mayor salida
 
 // Frecuencia base (velocidad mínima) para los movimientos de corrección.
 #define BASE_FREQUENCY                                                         \
@@ -233,15 +233,39 @@ void pid_controller_task(void *arg) {
     int16_t dynamic_angle_setpoint =
         g_absolute_setpoint + (int16_t)angle_setpoint_offset;
 
+    // --- APLICAR ZONA MUERTA (DEAD BAND) ---
+    float raw_angle_error =
+        (float)dynamic_angle_setpoint - (float)current_angle;
+    float continuous_error = 0.0f;
+
+    if (raw_angle_error > DEAD_BAND_ANGLE) {
+      continuous_error = raw_angle_error - DEAD_BAND_ANGLE;
+    } else if (raw_angle_error < -DEAD_BAND_ANGLE) {
+      continuous_error = raw_angle_error + DEAD_BAND_ANGLE;
+    } else {
+      continuous_error = 0.0f;
+    }
+
+    // Calculamos un ángulo ajustado para que PID_Compute calcule el error
+    // suavemente
+    float adjusted_current_angle = dynamic_angle_setpoint - continuous_error;
+
     // 2. CALCULAR ERROR de ángulo usando el setpoint dinámico
     // La salida del PID es aceleración, se integra a velocidad
-    float acceleration =
-        PID_Compute(&g_angle_controller, dynamic_angle_setpoint, current_angle);
+    float acceleration = PID_Compute(
+        &g_angle_controller, dynamic_angle_setpoint, adjusted_current_angle);
 
     // Integrador: convierte aceleración a velocidad (PID con solo Ki=1)
-    // El "error" para el integrador es la aceleración de salida del PID de
-    // ángulo
     float velocity = PID_Compute(&g_velocity_integrator, acceleration, 0.0f);
+
+    // CRUCIAL: Si estamos completamente dentro de la zona muerta, forzamos
+    // parar el motor Esto eliminará el temblor por completo.
+    if (continuous_error == 0.0f) {
+      velocity = 0.0f;
+      g_angle_controller.integral =
+          0.0f; // Evitar que acumule error dentro de la zona muerta
+      PID_Reset(&g_velocity_integrator); // Resetear la velocidad acumulada
+    }
 
     // 6. ACTUAR: Establecer la velocidad del motor
     set_motor_velocity(velocity);
