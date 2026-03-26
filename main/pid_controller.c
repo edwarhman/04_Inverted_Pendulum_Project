@@ -31,8 +31,7 @@
 // Banda muerta (Dead Band). Si el error (en cuentas del encoder) es menor que
 // este valor, lo consideramos cero. Esto es CRUCIAL para evitar que el motor
 // vibre o "tiemble" constantemente tratando de corregir errores minúsculos.
-#define DEAD_BAND_ANGLE                                                        \
-  1.5f // 1.0f//1.6f // con factor de crecimiento de 0.088° o 0.1° 1.76
+#define DEAD_BAND_ANGLE 1.5f // 1.0f//1.6f // con factor de crecimiento de 0.088° o 0.1° 1.76
 
 #define DEAD_BAND_X_CM 3 // 5
 
@@ -130,7 +129,7 @@ void pid_toggle_enable(void) {
     if (g_angle_controller.dt == 0.0f) {
       PID_Init(&g_angle_controller, 400.0f, 0.4f, 300.0f,
                PID_LOOP_PERIOD_MS / 1000.0f, -MAX_OUTPUT_PULSES,
-               MAX_OUTPUT_PULSES);
+               MAX_OUTPUT_PULSES, DEAD_BAND_ANGLE);
     } else {
       // Resetear el estado interno
       PID_Reset(&g_angle_controller);
@@ -193,16 +192,17 @@ void pid_controller_task(void *arg) {
 
   // Inicializar el controlador PID
   PID_Init(&g_angle_controller, 400.0f, 0.4f, 300.0f, loop_period_in_seconds,
-           -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
+           -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES, DEAD_BAND_ANGLE);
 
   // Inicializar el controlador de posición (solo proporcional)
   PID_Init(&g_position_controller, POSITION_CONTROL_GAIN, 0.0f, 0.0f,
-           loop_period_in_seconds, -MAX_SETPOINT_OFFSET, MAX_SETPOINT_OFFSET);
+           loop_period_in_seconds, -MAX_SETPOINT_OFFSET, MAX_SETPOINT_OFFSET,
+           DEAD_BAND_X_CM);
 
   // Inicializar el integrador de velocidad (solo I, ganancia 1)
   // Convierte la aceleración (salida del PID) a velocidad
   PID_Init(&g_velocity_integrator, 0.0f, 1, 0.0f, loop_period_in_seconds,
-           -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES);
+           -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES, 0.0f);
 
   // Reseteamos el error anterior al habilitar para evitar un pico inicial en D
   pid_toggle_enable(); // Habilita y resetea
@@ -251,7 +251,7 @@ void pid_controller_task(void *arg) {
 // --- Implementación de las nuevas funciones del controlador PID ---
 
 void PID_Init(PIDController *pid, float p, float i, float d, float dt,
-              float min, float max) {
+              float min, float max, float deadband) {
   pid->kp = p;
   pid->ki = i;
   pid->kd = d;
@@ -260,6 +260,8 @@ void PID_Init(PIDController *pid, float p, float i, float d, float dt,
   pid->out_min = min;
   pid->out_max = max;
 
+  pid->deadband = deadband;
+
   // Inicializar memoria en cero
   pid->integral = 0.0f;
   pid->ultimo_error = 0.0f;
@@ -267,6 +269,13 @@ void PID_Init(PIDController *pid, float p, float i, float d, float dt,
 
 float PID_Compute(PIDController *pid, float objetivo, float medicion_actual) {
   float error = objetivo - medicion_actual;
+
+  // Deadband: si el error está dentro del umbral, se limpia integral y derivativo
+  if (fabsf(error) <= pid->deadband) {
+    pid->integral = 0.0f;
+    pid->ultimo_error = 0.0f;
+    return 0.0f;
+  }
 
   // Proporcional
   float P = pid->kp * error;
