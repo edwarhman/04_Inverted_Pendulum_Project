@@ -367,6 +367,16 @@ void set_motor_velocity(float velocity) {
     int direction = (velocity > 0) ? 1 : 0;
     int frequency = calculate_motor_frequency(velocity);
 
+    // Estimación de odometría: ¿Cuántos pulsos se van a dar en este ciclo
+    // (aprox)?
+    float pulses_this_cycle =
+        (float)frequency * (PID_LOOP_PERIOD_MS / 1000.0f);
+    if (direction == 1) {
+      g_car_position_pulses += (int32_t)pulses_this_cycle;
+    } else {
+      g_car_position_pulses -= (int32_t)pulses_this_cycle;
+    }
+
     // Enviar el comando de velocidad continua
     motor_command_t cmd = {.num_pulses = 0, // Ignorado por el nuevo enfoque
                            .frequency = frequency,
