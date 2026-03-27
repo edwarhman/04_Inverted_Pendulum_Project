@@ -37,13 +37,13 @@
 
 // Evita que el término integral crezca indefinidamente y desestabilice el
 // sistema. Este valor debe ser menor o igual a MAX_OUTPUT_PULSES.
-#define MAX_INTEGRAL 130000.0f
+#define MAX_INTEGRAL 180000.0f
 
 // --- PARÁMETROS DEL ACTUADOR (MOTOR) ---
 // Límite máximo de pulsos que el PID puede ordenar en una sola corrección.
 // Sirve como medida de seguridad para evitar que una reacción brusca del PID
 // genere un movimiento demasiado violento.
-#define MAX_OUTPUT_PULSES 130000 // Aumentado de 1700 a 3000 para mayor salida
+#define MAX_OUTPUT_PULSES 180000 // Aumentado de 1700 a 3000 para mayor salida
 
 // Frecuencia base (velocidad mínima) para los movimientos de corrección.
 #define BASE_FREQUENCY                                                         \
@@ -63,7 +63,7 @@
 
 // Límite máximo para el offset del setpoint. Evita que pida ángulos demasiado
 // grandes.
-#define MAX_SETPOINT_OFFSET 20 // 25 // Máximo offset de 20 cuentas
+#define MAX_SETPOINT_OFFSET 70000 // 25 // Máximo offset de 20 cuentas
 
 // máxima frecuencia
 #define MAX_FRECUENCY_LIMIT 150000
@@ -202,11 +202,11 @@ void pid_controller_task(void *arg) {
   TickType_t last_wake_time = xTaskGetTickCount();
 
   // Inicializar el controlador PID
-  PID_Init(&g_angle_controller, 400.0f, 0.4f, 300.0f, loop_period_in_seconds,
+  PID_Init(&g_angle_controller, 17.780f, 178.0f, 1.70f, loop_period_in_seconds,
            -MAX_OUTPUT_PULSES, MAX_OUTPUT_PULSES, DEAD_BAND_ANGLE);
 
   // Inicializar el controlador de posición (solo proporcional)
-  PID_Init(&g_position_controller, 1.0f, 0.0f, 0.0f, loop_period_in_seconds,
+  PID_Init(&g_position_controller, 0.045f, 0.02f, 0.2f, loop_period_in_seconds,
            -MAX_SETPOINT_OFFSET, MAX_SETPOINT_OFFSET, DEAD_BAND_X_CM);
 
   // Inicializar el integrador de velocidad (solo I, ganancia 1)
@@ -236,15 +236,16 @@ void pid_controller_task(void *arg) {
     float position_setpoint = 0.0f;
 
     // Calcular el offset usando el controlador de posición (solo proporcional)
-    float angle_setpoint_offset = PID_Compute(
-        &g_position_controller, position_setpoint, g_car_position_pulses);
+    // float angle_setpoint_offset = PID_Compute(
+        // &g_position_controller, position_setpoint, g_car_position_pulses);
+    float desired_velocity = PID_Compute(&g_position_controller,position_setpoint,g_car_position_pulses);
 
     // Guardar para el LCD
     g_current_position_setpoint = position_setpoint;
 
     // Calcular el setpoint dinámico
     int16_t dynamic_angle_setpoint =
-        g_absolute_setpoint + (int16_t)angle_setpoint_offset;
+        g_absolute_setpoint + (int16_t)desired_velocity/400;
 
     // Guardar para el LCD
     g_current_dynamic_angle_setpoint = dynamic_angle_setpoint;
@@ -260,10 +261,10 @@ void pid_controller_task(void *arg) {
     float velocity = PID_Compute(&g_velocity_integrator, acceleration, 0.0f);
 
     // Guardar velocidad para el LCD
-    g_current_velocity = velocity;
+    g_current_velocity = acceleration;
 
     // 6. ACTUAR: Establecer la velocidad del motor
-    set_motor_velocity(velocity);
+    set_motor_velocity(acceleration);
   }
 }
 
@@ -293,8 +294,7 @@ float PID_Compute(PIDController *pid, float objetivo, float medicion_actual) {
   // derivativo
   if (fabsf(error) <= pid->deadband) {
     pid->integral = 0.0f;
-    pid->ultimo_error = 0.0f;
-    return 0.0f;
+    // return 0.0f;
   }
 
   // Proporcional
@@ -304,7 +304,7 @@ float PID_Compute(PIDController *pid, float objetivo, float medicion_actual) {
   float D = pid->kd * (error - pid->ultimo_error) / pid->dt;
 
   // Cálculo temporal de la integral
-  float nueva_integral = pid->integral + (error * pid->dt);
+  float nueva_integral = pid->integral + (error/2 * pid->dt);
   float I = pid->ki * nueva_integral;
 
   float salida_total = P + I + D;
@@ -392,7 +392,7 @@ int velocity_to_motor_frequency(float linear_velocity) {
  */
 void set_motor_velocity(float velocity) {
   // 6. ACTUAR: Si la salida no es cero, enviar comando al motor
-  if (fabs(velocity) > 200) {
+  if (fabs(velocity) > BASE_FREQUENCY/5) {
   int direction = (velocity > 0) ? 1 : 0;
   // int frequency = calculate_motor_frequency(velocity);
   int frequency = 0;

@@ -201,11 +201,12 @@ void lcd_display_task(void *pvParameters)
 
         case VIEW_POSITION:
         {
+            float PULSOS_POR_CM = 2500.0f;
             float pos_sp = pid_get_position_setpoint();
-            float pos_sp_cm = pos_sp * 12.0f / 37200.0f;
+            float pos_sp_cm = pos_sp / PULSOS_POR_CM;
             lcd_printf_line(0, "SP:%.1fcm %dp", pos_sp_cm, (int)pos_sp);
             
-            g_car_position_cm = (float)g_car_position_pulses * 12.0f / 37200.0f;
+            g_car_position_cm = (float)g_car_position_pulses / PULSOS_POR_CM;
             lcd_printf_line(1, "%.1fcm P:%ld", g_car_position_cm, (long)g_car_position_pulses);
             break;
         }
