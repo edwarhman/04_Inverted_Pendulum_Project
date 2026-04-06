@@ -32,4 +32,20 @@ void pulse_counter_task(void *arg);*/
  */
 void pulse_counter_init(void);
 
+/**
+ * @brief Obtiene el ángulo actual en radianes.
+ */
+float pulse_counter_get_angle_rad(void);
+
+/**
+ * @brief Obtiene el ángulo actual en grados.
+ */
+float pulse_counter_get_angle_deg(void);
+
+/**
+ * @brief Obtiene el valor actual del contador en pulsos crudos.
+ * Es un alias explicito de pulse_counter_get_value().
+ */
+int16_t pulse_counter_get_angle_pulses(void);
+
 #endif // PULSE_COUNTER_H

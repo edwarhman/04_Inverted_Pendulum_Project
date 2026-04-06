@@ -100,10 +100,10 @@ void pid_set_kd(float kd);
 
 /**
  * @brief Devuelve el punto de consigna (setpoint) actual del controlador.
- * @return El setpoint actual en cuentas del encoder.
+ * @return El setpoint actual en radianes.
  */
-int16_t pid_get_setpoint(void);
-void pid_set_absolute_setpoint(int16_t new_setpoint);
+float pid_get_setpoint_rad(void);
+void pid_set_absolute_setpoint_rad(float new_setpoint_rad);
 
 /**
  * @brief Devuelve si el bucle de control del PID está actualmente habilitado.
@@ -118,9 +118,9 @@ void pid_force_disable(void);
  * @brief Establece la velocidad del motor.
  * Si la velocidad es cero o cercana a cero, detiene el motor.
  * De lo contrario, calcula la dirección y frecuencia y envía el comando al motor.
- * @param velocity La velocidad deseada (salida del PID)
+ * @param velocity_ms La velocidad deseada en m/s (salida del PID integrador)
  */
-void set_motor_velocity(float velocity);
+void set_motor_velocity(float velocity_ms);
 
 // --- AÑADIDO: Funciones para obtener los valores de las ganancias ---
 float pid_get_kp(void);
@@ -128,8 +128,36 @@ float pid_get_ki(void);
 float pid_get_kd(void);
 
 // --- Funciones para monitoreo en LCD ---
-float pid_get_position_setpoint(void);
-int16_t pid_get_dynamic_angle_setpoint(void);
+float pid_get_position_setpoint(void); // en metros
+float pid_get_dynamic_angle_setpoint_rad(void);
 float pid_get_velocity(void);
+
+// --- Abstracción de Unidades Físicas (Odometría) ---
+/**
+ * @brief Obtiene la posición actual del carro en metros.
+ */
+float pid_get_car_position_m(void);
+
+/**
+ * @brief Obtiene la posición actual del carro en centímetros.
+ */
+float pid_get_car_position_cm(void);
+
+/**
+ * @brief Obtiene la posición actual del carro en milímetros.
+ */
+float pid_get_car_position_mm(void);
+
+/**
+ * @brief Obtiene la posición actual del carro en pulsos.
+ */
+int32_t pid_get_car_position_pulses(void);
+
+/**
+ * @brief Convierte una distancia física en metros a cantidad de pulsos del motor.
+ * @param meters Distancia física deseada en metros.
+ * @return Equivalente de la distancia en pulsos enteros para enviarle al motor.
+ */
+int pid_meters_to_pulses(float meters);
 
 #endif // PID_CONTROLLER_H

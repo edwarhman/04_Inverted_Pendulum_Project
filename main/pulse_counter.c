@@ -89,3 +89,26 @@ int16_t pulse_counter_get_value(void) {
     pcnt_get_counter_value(PCNT_UNIT, &count);
     return count;
 }
+
+// --- Abstracción de Unidades Físicas ---
+#include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+float pulse_counter_get_angle_rad(void) {
+    int16_t pulses = pulse_counter_get_value();
+    // 4096 pulsos corresponden a 2*PI radianes
+    return ((float)pulses / ENCODER_RESOLUTION) * 2.0f * M_PI;
+}
+
+float pulse_counter_get_angle_deg(void) {
+    int16_t pulses = pulse_counter_get_value();
+    // 4096 pulsos corresponden a 360 grados
+    return ((float)pulses / ENCODER_RESOLUTION) * 360.0f;
+}
+
+int16_t pulse_counter_get_angle_pulses(void) {
+    return pulse_counter_get_value();
+}

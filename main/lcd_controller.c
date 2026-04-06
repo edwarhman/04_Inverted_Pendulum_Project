@@ -192,22 +192,22 @@ void lcd_display_task(void *pvParameters)
             }
 
             // Línea 2: Posición en grados
-            int16_t position = pulse_counter_get_value();
-            float degrees = (float)position * 360.0f / 4096.0f;
-            int16_t sp = pid_get_dynamic_angle_setpoint();
-            lcd_printf_line(1, "A:%.0f P:%d %d", degrees - 180, position, sp);
+            float degrees = pulse_counter_get_angle_deg();
+            float sp_rad = pid_get_dynamic_angle_setpoint_rad();
+            float sp_deg = sp_rad * (180.0f / 3.14159265f);
+            lcd_printf_line(1, "A:%.0f SP:%.0f*", degrees - 180, sp_deg - 180);
             break;
         }
 
         case VIEW_POSITION:
         {
-            float PULSOS_POR_CM = 2500.0f;
-            float pos_sp = pid_get_position_setpoint();
-            float pos_sp_cm = pos_sp / PULSOS_POR_CM;
-            lcd_printf_line(0, "SP:%.1fcm %dp", pos_sp_cm, (int)pos_sp);
+            float pos_sp_m = pid_get_position_setpoint();
+            float pos_sp_cm = pos_sp_m * 100.0f;
+            lcd_printf_line(0, "SP:%.1fcm", pos_sp_cm);
             
-            g_car_position_cm = (float)g_car_position_pulses / PULSOS_POR_CM;
-            lcd_printf_line(1, "%.1fcm P:%ld", g_car_position_cm, (long)g_car_position_pulses);
+            float car_position_cm = pid_get_car_position_cm();
+            int32_t car_position_pulses = pid_get_car_position_pulses();
+            lcd_printf_line(1, "%.1fcm P:%ld", car_position_cm, (long)car_position_pulses);
             break;
         }
 

@@ -2,6 +2,7 @@
 #include "button_handler.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_timer.h" // Añadido para medir tiempo de movimiento
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lcd_controller.h"
@@ -226,17 +227,16 @@ void button_handler_task(void *arg) {
           // Usamos el operador de módulo para manejar el "wrap-around" del
           // contador de 16 bits.
           int32_t vertical_setpoint_32 = fallen_pos + (ENCODER_RESOLUTION / 2);
-          int16_t vertical_setpoint_16 =
-              (int16_t)vertical_setpoint_32; // Casting para el rango correcto
+          float vertical_setpoint_rad = ((float)vertical_setpoint_32 / ENCODER_RESOLUTION) * 2.0f * 3.14159265f;
 
           // 3. Llamar a la función del PID para establecer el setpoint
-          // calculado.
-          pid_set_absolute_setpoint(vertical_setpoint_16);
+          // calculado en radianes.
+          pid_set_absolute_setpoint_rad(vertical_setpoint_rad);
 
           ESP_LOGW(
               TAG,
-              "Setpoint vertical pre-calculado: %d. El sistema está listo.",
-              vertical_setpoint_16);
+              "Setpoint vertical pre-calculado: %.3f rad. El sistema está listo.",
+              vertical_setpoint_rad);
           ESP_LOGW(TAG,
                    "Levante el péndulo y presione el botón de habilitar PID.");
 
@@ -247,6 +247,8 @@ void button_handler_task(void *arg) {
 
       // Leemos el estado de los botones de movimiento manual
       static bool jogging_active = false;
+      static int64_t last_jog_time = 0;
+      static int last_jog_direction = -1; // -1 inv, 0 izq, 1 der
       int left_button_state = gpio_get_level(MANUAL_LEFT_BUTTON_GPIO);
       int right_button_state = gpio_get_level(MANUAL_RIGHT_BUTTON_GPIO);
 
@@ -259,7 +261,18 @@ void button_handler_task(void *arg) {
                                .frequency = JOG_SPEED_HZ,
                                .direction = 0};
         xQueueOverwrite(motor_command_queue, &cmd);
-        jogging_active = true;
+        
+        if (!jogging_active || last_jog_direction != 0) {
+            last_jog_time = esp_timer_get_time();
+            jogging_active = true;
+            last_jog_direction = 0;
+        } else {
+            int64_t current_time = esp_timer_get_time();
+            int64_t dt_us = current_time - last_jog_time;
+            int32_t pulses_moved = (int32_t)((dt_us * JOG_SPEED_HZ) / 1000000);
+            g_car_position_pulses -= pulses_moved;
+            last_jog_time = current_time;
+        }
       }
       // Si se presiona el botón derecho Y no el izquierdo
       else if (right_button_state == 1 && left_button_state == 0 &&
@@ -270,17 +283,38 @@ void button_handler_task(void *arg) {
                                .frequency = JOG_SPEED_HZ,
                                .direction = 1};
         xQueueOverwrite(motor_command_queue, &cmd);
-        jogging_active = true;
+        
+        if (!jogging_active || last_jog_direction != 1) {
+            last_jog_time = esp_timer_get_time();
+            jogging_active = true;
+            last_jog_direction = 1;
+        } else {
+            int64_t current_time = esp_timer_get_time();
+            int64_t dt_us = current_time - last_jog_time;
+            int32_t pulses_moved = (int32_t)((dt_us * JOG_SPEED_HZ) / 1000000);
+            g_car_position_pulses += pulses_moved;
+            last_jog_time = current_time;
+        }
       } else {
         // Si no se presiona ningún botón o ambos (o hay choque de límites),
         // detenemos el movimiento
         status_set_manual_move_state(MANUAL_MOVE_NONE); // Reportar estado
 
         if (jogging_active) {
+          int64_t current_time = esp_timer_get_time();
+          int64_t dt_us = current_time - last_jog_time;
+          int32_t pulses_moved = (int32_t)((dt_us * JOG_SPEED_HZ) / 1000000);
+          if (last_jog_direction == 0) {
+              g_car_position_pulses -= pulses_moved;
+          } else if (last_jog_direction == 1) {
+              g_car_position_pulses += pulses_moved;
+          }
+          
           motor_command_t stop_cmd = {
               .num_pulses = 0, .frequency = 0, .direction = 0};
           xQueueOverwrite(motor_command_queue, &stop_cmd);
           jogging_active = false;
+          last_jog_direction = -1;
         }
       }
     } else {

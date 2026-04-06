@@ -119,3 +119,20 @@ Ciertas aproximaciones clásicas de software, si bien son buenas ideas en proyec
 * ⚠️ **Suavizado de Motor (Ramping Trapezoidal)**: Añadir curvas S de aceleración/desaceleración para la corrección suaviza el deslizamiento, pero le introduce muchísima pre-latencia al mandato del actuador. El PID de un péndulo exige correcciones torques instantáneos, no curvos, o se desbalanceará. (Usarlo solo para desplazamientos manuales de "Homing").
 * ⚠️ **Filtros de Software en los Encoders (Media Móvil)**: Suavizar la señal del sensor óptico con algoritmos predictivos o generacionales inyecta el temido *Phase Lag* (ver o proyectar un evento milisegundos más tarde de su instante real). Se prefiere utilizar exclusivamente el filtro de ruido del Hardware de Silicio original (`pcnt_filter_enable`).
 * ⚠️ **Módulos Inalámbricos (Wi-Fi/Bluetooth)**: Muy tentador para calibración visual o graficado. Lamentablemente, invocar rutinas criptográficas y de red inalámbricas en el modelo ESP32 levantan masivas Interrupciones (ISR). Si las tareas de control de motores no se clavan estrictamente en el otro núcleo usando "Core Affinity", el procesador dejará "mudo" el motor repetidamente causando caídas esporádicas.
+
+### 7. Testing y Aseguramiento de Calidad (QA)
+Para evitar que un error de software estrelle la máquina física, se recomienda el uso de **Tests Unitarios** enfocados exclusivamente en la matemática de control, ignorando los periféricos o la simulación de física (Cualquier simulación física de robótica debe hacerse en MATLAB/Python, nunca dentro del ESP32).
+
+Se recomienda usar el framework **Unity** (integrado nativamente en ESP-IDF) para someter a pruebas mecánicas a la siguiente función crítica:
+* **Función Objetivo:** `PID_Compute()` (Ubicada en `pid_controller.c`).
+* **Casos de Prueba a Implementar:**
+    1. **Test del Lazo Proporcional:** Inyectar un "Error" constante y verificar que la salida aumente exactamente proporcional a `Kp`.
+    2. **Freno de Integral (Anti-Windup):** Enviar un error gigantesco y mantenido en el tiempo para ver si el valor de la sumatoria Integral sigue creciendo hasta estallar la memoria RAM, o si respeta correctamente los límites de saturación (`MAX_OUTPUT_PULSES`).
+    3. **Resistencia a Banda Muerta (Dead Band):** Inyectar errores sumamente diminutos y menores a `DEAD_BAND_ANGLE`. El test debe pasar únicamente si la función resetea la integral a 0 ($0.0f$), comprobando que el péndulo no intentará auto-corregirse con un microrruido.
+    4. **Caos de Derivada:** Enviar una señal muy picuda (mucho error, luego nada, luego mucho error opuesto) simulando un tirón. Verificar que los cálculos de `(error - ultimo_error)/dt` generen bien sus signos negativos frenando virtualmente el movimiento, descartando que hayan desbordamientos `NaN` en las divisiones.
+
+### 8. Control Avanzado del Sistema
+* **Control por Variables de Estado**: Desarrollar e implementar un módulo de control avanzado mediante realimentación de variables de estado. Esto incluirá la utilización de un **Observador de Luenberger** para estimar aquellos estados dinámicos del sistema que no pueden ser medidos directamente por los sensores, logrando una respuesta más completa y estable.
+
+### 9. Parametrización y Unidades Físicas
+* **Abstracción de Variables Físicas**: Transformar las unidades de hardware en bruto a magnitudes físicas reales. Es necesario mapear los pulsos leídos por el encoder rotativo transformándolos a **Radianes (rad) y Grados (°)**. Asimismo, mapear y traducir los pulsos enviados al motor paso a paso para medir la **posición métrica (mm/cm)** física de desplazamiento que tiene el carrito sobre el riel.
