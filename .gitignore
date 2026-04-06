@@ -10,7 +10,6 @@ sdkconfig.defaults.old
 
 # VSCode y Herramientas (Ignorar todo local excepto las configuraciones base si se desean compartir)
 .vscode/*
-!.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json

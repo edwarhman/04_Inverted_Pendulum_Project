@@ -1,0 +1,7 @@
+CompileFlags:
+  Add:
+    - "-Wno-undef"
+  Remove:
+    - "-fstrict-volatile-bitfields"
+    - "-fno-shrink-wrap"
+    - "-fno-tree-switch-conversion"

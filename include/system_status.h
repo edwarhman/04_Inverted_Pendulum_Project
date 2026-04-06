@@ -36,6 +36,7 @@ typedef enum
     VIEW_MAIN_STATUS,    // Vista principal: Estado PID y Posición en Grados
     VIEW_POSITION, // Vista secundaria: Posición del carro en cm
     VIEW_PID_GAINS,      // Vista terciaria: Valores de las ganancias Kp, Ki, Kd
+    VIEW_VELOCITY,       // Cuarta vista: Velocidad
     VIEW_COUNT,           // ¡Importante! Siempre al final, para saber cuántas vistas hay
     VIEW_CALIBRATION //++
 } lcd_view_state_t;
