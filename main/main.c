@@ -11,9 +11,12 @@
 #include "pulse_counter.h"  // Para la tarea de lectura del encoder
 #include "button_handler.h" // Para la tarea de lectura del botón
 #include "pid_controller.h"
+#include "state_space_controller.h"
 #include "freertos/queue.h"
 #include "lcd_controller.h" // ¡Solo incluimos nuestro módulo!
 #include "system_status.h"
+
+#define USE_STATE_SPACE_CONTROLLER 1
 
 /*typedef struct
 {
@@ -47,8 +50,12 @@ void app_main(void)
 
   // --------- Cada tarea se ejecutará de forma independiente y concurrente. ---------
 
-  // Crear la tarea del controlador PID (prioridad mas alta)
+  // Crear la tarea del controlador (prioridad mas alta)
+  #if USE_STATE_SPACE_CONTROLLER
+  xTaskCreate(state_space_controller_task, "StateSpace", configMINIMAL_STACK_SIZE * 4, NULL, 5, NULL);
+  #else
   xTaskCreate(pid_controller_task, "PID_Controller", configMINIMAL_STACK_SIZE * 4, NULL, 5, NULL);
+  #endif
 
   // Crear la tarea del control del motor
   xTaskCreate(motor_control_task, "Motor_Control", configMINIMAL_STACK_SIZE * 3, NULL, 4, NULL);
