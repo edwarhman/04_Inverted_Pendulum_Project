@@ -123,15 +123,9 @@ void pid_set_absolute_setpoint_rad(float new_setpoint_rad) {
   ESP_LOGW(TAG, "Setpoint absoluto establecido en: %.3f rad", g_absolute_setpoint);
 }
 
-void pid_toggle_enable(void) {
-  g_pid_enabled = !g_pid_enabled;
-  if (g_pid_enabled) {
-    // --- LÓGICA PARA ESTABLECER EL SETPOINT DINÁMICO ---
-    // 1. Leer la posición actual del encoder en el momento de la habilitación.
-    // int16_t current_position = pulse_counter_get_value();
-    // 2. Establecer esa posición como nuestro nuevo punto de equilibrio.
-    // g_absolute_setpoint = current_position;
-
+void pid_enable(void) {
+  if (!g_pid_enabled) {
+    g_pid_enabled = true;
     g_pid_start_time_us = esp_timer_get_time();
 
     // Inicializar el controlador PID si no está inicializado
@@ -140,22 +134,30 @@ void pid_toggle_enable(void) {
                PID_LOOP_PERIOD_MS / 1000.0f, -0.72f,
                0.72f, DEAD_BAND_ANGLE);
     } else {
-      // Resetear el estado interno
       PID_Reset(&g_angle_controller);
     }
-
-    // Resetear también el controlador de posición
     PID_Reset(&g_position_controller);
-
-    // Resetear el integrador de velocidad
     PID_Reset(&g_velocity_integrator);
 
     ESP_LOGW(TAG, "Control PID HABILITADO");
-  } else {
+  }
+}
+
+void pid_disable(void) {
+  if (g_pid_enabled) {
+    g_pid_enabled = false;
     motor_command_t stop_cmd = {
         .num_pulses = 0, .frequency = 0, .direction = 0};
     xQueueOverwrite(motor_command_queue, &stop_cmd);
     ESP_LOGW(TAG, "Control PID DESHABILITADO");
+  }
+}
+
+void pid_toggle_enable(void) {
+  if (g_pid_enabled) {
+    pid_disable();
+  } else {
+    pid_enable();
   }
 }
 
@@ -212,16 +214,16 @@ void pid_controller_task(void *arg) {
   TickType_t last_wake_time = xTaskGetTickCount();
 
   // Inicializar el controlador PID (Salida en aceleración m/s^2)
-  PID_Init(&g_angle_controller, 6.0f, 0.01f, 0.03f, loop_period_in_seconds,
-           -1.72f, 1.72f, DEAD_BAND_ANGLE);
+  PID_Init(&g_angle_controller, 17.0f, 178.01f, 1.73f, loop_period_in_seconds,
+           -2.72f, 2.72f, DEAD_BAND_ANGLE);
 
   // Inicializar el controlador de posición (solo proporcional)
-  PID_Init(&g_position_controller, 0.2, 0.0f, 0.0041f, loop_period_in_seconds,
-           -MAX_SETPOINT_OFFSET, MAX_SETPOINT_OFFSET, DEAD_BAND_X_M);
+  PID_Init(&g_position_controller, 1.045f, 0.0f, 0.1341f, loop_period_in_seconds,
+           -MAX_SETPOINT_OFFSET, MAX_SETPOINT_OFFSET, 0.0f);
 
   // Inicializar el integrador de velocidad (solo I, ganancia 1)
   // Convierte la aceleración m/s^2 a velocidad m/s
-  PID_Init(&g_velocity_integrator, 0.1f, 0.95f, 0.0f, loop_period_in_seconds,
+  PID_Init(&g_velocity_integrator, 0.1f, 0.9f, 0.0f, loop_period_in_seconds,
            -2.72f, 2.72f, 0.0f);
 
   // Reseteamos el error anterior al habilitar para evitar un pico inicial en D
@@ -244,7 +246,7 @@ void pid_controller_task(void *arg) {
 
     // --- Lógica de control de posición ---
     // El setpoint de posición es 0 (centro del riel en metros)
-    float position_setpoint_m = 0.12f;
+    float position_setpoint_m = 0.00f;
     g_current_position_setpoint = position_setpoint_m;
 
     // Calcular el offset en radianes usando el controlador de posición
@@ -262,7 +264,7 @@ void pid_controller_task(void *arg) {
     // 2. CALCULAR ERROR de ángulo en radianes
     // La salida del PID es aceleración, se integra a velocidad
     float acceleration =
-        PID_Compute(&g_angle_controller, g_absolute_setpoint, current_angle_rad);
+        PID_Compute(&g_angle_controller, dynamic_angle_setpoint_rad, current_angle_rad);
 
     // Integrador: convierte aceleración a velocidad (PID con solo Ki=1)
     // El "error" para el integrador es la aceleración de salida del PID de

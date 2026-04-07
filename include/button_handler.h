@@ -11,4 +11,10 @@
  */
 void button_handler_task(void *arg);
 
+/**
+ * @brief Inicia la rutina de calibración (homing) del sistema.
+ * Puede ser llamada desde la tarea de botones o desde comandos externos (Bluetooth/UART).
+ */
+void button_handler_start_calibration(void);
+
 #endif // BUTTON_HANDLER_H

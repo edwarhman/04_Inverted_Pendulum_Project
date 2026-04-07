@@ -82,6 +82,8 @@ void motor_control_task(void *arg);
  * Función segura para ser llamada desde otras tareas (ej. el manejador del botón).
  */
 void pid_toggle_enable(void);
+void pid_enable(void);
+void pid_disable(void);
 
 /**
  * @brief Establece el valor de la ganancia Proporcional (Kp).

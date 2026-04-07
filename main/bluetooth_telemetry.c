@@ -13,10 +13,12 @@
 #include "esp_gap_bt_api.h"
 #include "esp_bt_device.h"
 #include "esp_spp_api.h"
+#include <ctype.h> // Para tolower/toupper
 
 #include "bluetooth_telemetry.h"
 #include "pid_controller.h"
 #include "pulse_counter.h"
+#include "button_handler.h"
 
 #define SPP_SERVER_NAME "SPP_SERVER"
 #define CONFIG_BT_DEVICE_NAME "Pendulo_Invertido"
@@ -24,6 +26,87 @@
 static const char *TAG = "BT_TELEM";
 static uint32_t spp_handle = 0;
 static bool spp_connected = false;
+static bool telemetry_enabled = true;
+
+// Buffer para comandos entrantes
+static char cmd_buffer[128];
+static int cmd_index = 0;
+
+static void send_bt_response(const char *msg) {
+    if (spp_connected && spp_handle != 0) {
+        char resp[160];
+        int len = snprintf(resp, sizeof(resp), "#%s\r\n", msg);
+        esp_spp_write(spp_handle, len, (uint8_t *)resp);
+    }
+}
+
+static void process_bt_command(char *line) {
+    // Eliminar posibles espacios en blanco al final
+    int len = strlen(line);
+    while (len > 0 && isspace((unsigned char)line[len-1])) {
+        line[--len] = '\0';
+    }
+
+    if (len == 0) return;
+
+    char *cmd = strtok(line, " ");
+    char *val = strtok(NULL, " ");
+
+    if (cmd == NULL) return;
+
+    // Convertir comando a mayúsculas para facilitar comparación
+    for (int i = 0; cmd[i]; i++) cmd[i] = toupper((unsigned char)cmd[i]);
+
+    if (strcmp(cmd, "SETKP") == 0 && val != NULL) {
+        float v = atof(val);
+        pid_set_kp(v);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Sintonizado: Kp = %.4f", v);
+        send_bt_response(msg);
+    } else if (strcmp(cmd, "SETKI") == 0 && val != NULL) {
+        float v = atof(val);
+        pid_set_ki(v);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Sintonizado: Ki = %.4f", v);
+        send_bt_response(msg);
+    } else if (strcmp(cmd, "SETKD") == 0 && val != NULL) {
+        float v = atof(val);
+        pid_set_kd(v);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Sintonizado: Kd = %.4f", v);
+        send_bt_response(msg);
+    } else if (strcmp(cmd, "ENABLE") == 0) {
+        pid_toggle_enable();
+        bool is_en = pid_is_enabled();
+        char msg[64];
+        snprintf(msg, sizeof(msg), "PID %s", is_en ? "HABILITADO" : "DESHABILITADO");
+        send_bt_response(msg);
+    } else if (strcmp(cmd, "TELE") == 0) {
+        telemetry_enabled = !telemetry_enabled;
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Telemetria %s", telemetry_enabled ? "INICIADA" : "DETENIDA");
+        send_bt_response(msg);
+    } else if (strcmp(cmd, "STATUS") == 0) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "STATUS: Kp=%.4f, Ki=%.4f, Kd=%.4f, Enabled=%d, Tele=%d", 
+                pid_get_kp(), pid_get_ki(), pid_get_kd(), pid_is_enabled(), telemetry_enabled);
+        send_bt_response(msg);
+    } else if (strcmp(cmd, "CALIBRATE") == 0) {
+        if (pid_is_enabled()) {
+            send_bt_response("ERROR: Deshabilite PID antes de calibrar");
+        } else {
+            send_bt_response("Iniciando Calibracion...");
+            button_handler_start_calibration();
+            send_bt_response("Calibracion Finalizada");
+        }
+    } else if (strcmp(cmd, "HELP") == 0) {
+        send_bt_response("Comandos: ENABLE (PID), TELE (CSV), STATUS, CALIBRATE, SETK[P,I,D] <val>");
+    } else {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Comando desconocido: %s", cmd);
+        send_bt_response(msg);
+    }
+}
 
 static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
     switch (event) {
@@ -50,7 +133,19 @@ static void esp_spp_cb(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
         ESP_LOGI(TAG, "ESP_SPP_CL_INIT_EVT");
         break;
     case ESP_SPP_DATA_IND_EVT:
-        // No hacemos nada con los datos recibidos por ahora
+        ESP_LOGI(TAG, "ESP_SPP_DATA_IND_EVT len=%d", param->data_ind.len);
+        for (int i = 0; i < param->data_ind.len; i++) {
+            char c = param->data_ind.data[i];
+            if (c == '\n' || c == '\r') {
+                if (cmd_index > 0) {
+                    cmd_buffer[cmd_index] = '\0';
+                    process_bt_command(cmd_buffer);
+                    cmd_index = 0;
+                }
+            } else if (cmd_index < sizeof(cmd_buffer) - 1) {
+                cmd_buffer[cmd_index++] = c;
+            }
+        }
         break;
     case ESP_SPP_CONG_EVT:
         break;
@@ -79,11 +174,13 @@ static void bluetooth_telemetry_task(void *arg) {
             uint64_t time_ms = pid_get_run_time_ms();
             float pos_m = pid_get_car_position_m();
             float angle_rad = pulse_counter_get_angle_rad();
-
-            // Formato CSV solicitado: tiempo_ms, posicion, angulo
-            int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f\r\n", time_ms, pos_m, angle_rad);
-            if (len > 0) {
-                esp_spp_write(spp_handle, len, (uint8_t *)packet);
+ 
+            if (telemetry_enabled) {
+                // Formato CSV solicitado: tiempo_ms, posicion, angulo
+                int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f\r\n", time_ms, pos_m, angle_rad);
+                if (len > 0) {
+                    esp_spp_write(spp_handle, len, (uint8_t *)packet);
+                }
             }
         }
         vTaskDelay(pdMS_TO_TICKS(50)); // Enviar cada 50 ms (20 Hz)
