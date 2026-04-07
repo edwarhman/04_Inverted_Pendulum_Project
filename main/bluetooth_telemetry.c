@@ -75,6 +75,12 @@ static void process_bt_command(char *line) {
         char msg[64];
         snprintf(msg, sizeof(msg), "Sintonizado: Kd = %.4f", v);
         send_bt_response(msg);
+    } else if (strcmp(cmd, "SETPOS") == 0 && val != NULL) {
+        float v = atof(val);
+        pid_set_position_setpoint_m(v);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Setpoint Posicion: %.4f m", v);
+        send_bt_response(msg);
     } else if (strcmp(cmd, "ENABLE") == 0) {
         pid_toggle_enable();
         bool is_en = pid_is_enabled();
@@ -87,9 +93,9 @@ static void process_bt_command(char *line) {
         snprintf(msg, sizeof(msg), "Telemetria %s", telemetry_enabled ? "INICIADA" : "DETENIDA");
         send_bt_response(msg);
     } else if (strcmp(cmd, "STATUS") == 0) {
-        char msg[128];
-        snprintf(msg, sizeof(msg), "STATUS: Kp=%.4f, Ki=%.4f, Kd=%.4f, Enabled=%d, Tele=%d", 
-                pid_get_kp(), pid_get_ki(), pid_get_kd(), pid_is_enabled(), telemetry_enabled);
+        char msg[160];
+        snprintf(msg, sizeof(msg), "STATUS: Kp=%.4f, Ki=%.4f, Kd=%.4f, PosSP=%.4f, Enabled=%d, Tele=%d", 
+                pid_get_kp(), pid_get_ki(), pid_get_kd(), pid_get_position_setpoint_m(), pid_is_enabled(), telemetry_enabled);
         send_bt_response(msg);
     } else if (strcmp(cmd, "CALIBRATE") == 0) {
         if (pid_is_enabled()) {
@@ -100,7 +106,7 @@ static void process_bt_command(char *line) {
             send_bt_response("Calibracion Finalizada");
         }
     } else if (strcmp(cmd, "HELP") == 0) {
-        send_bt_response("Comandos: ENABLE (PID), TELE (CSV), STATUS, CALIBRATE, SETK[P,I,D] <val>");
+        send_bt_response("Comandos: ENABLE, TELE, STATUS, CALIBRATE, SETK[P,I,D] <val>, SETPOS <m>");
     } else {
         char msg[64];
         snprintf(msg, sizeof(msg), "Comando desconocido: %s", cmd);

@@ -137,6 +137,8 @@ float pid_get_kd(void);
 
 // --- Funciones para monitoreo en LCD ---
 float pid_get_position_setpoint(void); // en metros
+void pid_set_position_setpoint_m(float m);
+float pid_get_position_setpoint_m(void);
 float pid_get_dynamic_angle_setpoint_rad(void);
 float pid_get_velocity(void);
 
