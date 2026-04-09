@@ -266,6 +266,7 @@ void pid_controller_task(void *arg) {
 
     // Calcular el setpoint dinámico (en radianes)
     float dynamic_angle_setpoint_rad = g_absolute_setpoint + offset_angle_rad;
+<<<<<<< HEAD
 
     // --- APLICAR ZONA MUERTA (DEAD BAND) ---
     float raw_angle_error =
@@ -283,6 +284,8 @@ void pid_controller_task(void *arg) {
     // Calculamos un ángulo ajustado para que PID_Compute calcule el error
     // suavemente
     float adjusted_current_angle = dynamic_angle_setpoint - continuous_error;
+=======
+>>>>>>> 940ebe71ff7594c50622afe158fcf826cebaa8f9
 
     // 2. CALCULAR ERROR de ángulo usando el setpoint dinámico
     // La salida del PID es aceleración, se integra a velocidad
@@ -291,15 +294,6 @@ void pid_controller_task(void *arg) {
 
     // Integrador: convierte aceleración a velocidad (PID con solo Ki=1)
     float velocity = PID_Compute(&g_velocity_integrator, acceleration, 0.0f);
-
-    // CRUCIAL: Si estamos completamente dentro de la zona muerta, forzamos
-    // parar el motor Esto eliminará el temblor por completo.
-    if (continuous_error == 0.0f) {
-      velocity = 0.0f;
-      g_angle_controller.integral =
-          0.0f; // Evitar que acumule error dentro de la zona muerta
-      PID_Reset(&g_velocity_integrator); // Resetear la velocidad acumulada
-    }
 
     // 6. ACTUAR: Establecer la velocidad del motor
     set_motor_velocity(velocity);
