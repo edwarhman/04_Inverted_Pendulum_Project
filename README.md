@@ -22,8 +22,12 @@ El proyecto está diseñado bajo una arquitectura de sistema en tiempo real (RTO
 
 ## ⚙️ Componentes Principales e Implementación
 
-* **Controlador PID (`pid_controller.c`):** 
-  Utiliza una banda muerta (Dead Band) para evitar vibraciones minúsculas cuando el péndulo está virtualmente balanceado. También incluye un control en cascada leve para intentar mantener el carro (Odometría) cerca del centro geométrico del riel, sumando un pequeño "offset" al balance del péndulo para forzar al carro a retroceder lentamente.
+* **Controlador PID en Cascada (`pid_controller.c`):** 
+  Implementa una robusta arquitectura de control dividida en tres etapas clave para mantener el péndulo en equilibrio y el carro dentro del riel:
+  1. **Lazo Externo de Posición (Lento):** Se encarga de la posición métrica u odometría del carro. Al percibir un desvío respecto a la posición objetivo, determina un pequeño ángulo de "offset". Físicamente, ordena al péndulo inclinarse levemente para forzar al carro a desplazarse hacia ese lado en un intento por recuperar el equilibrio.
+  2. **Lazo Interno de Ángulo (Rápido):** Suma el "0" absoluto (vertical ideal) más el "offset" de posición para crear el *Setpoint Dinámico*. Calcula con precisión milimétrica, leyendo el encoder angular y procesando el PID completo, la **aceleración (m/s²)** inminente que debe generarse para que el péndulo no caiga.
+  3. **Integrador de Velocidad:** Dado que el motor paso a paso requiere velocidades de paso constantes y no tirones de aceleración, un tercer bloque integrador (Ganancia `Ki`) transforma continuamente la aceleración del Lazo de Ángulo en una **velocidad de actuación (m/s)** plana y suave, que a su vez se traduce al hardware en Frecuencia de pulsos.
+  Adicionalmente cuenta con **Banda Muerta (Dead-band)** en los cero grados absolutos para cortar energía si el error es despreciable evitando "temblores" y desgaste, así como saturación **Anti-Windup** en la rama integral para suprimir sobre-reacciones erráticas irreversibles en choques.
 * **Generador PWM (`pwm_generator.c`):** 
   Utiliza el periférico de hardware **LEDC** del ESP32. Envía pulsos asíncronos y continuos con un ciclo de trabajo del 50%. La velocidad se controla ajustando la frecuencia (`ledc_set_freq`) al vuelo sin bloquear la tarea, reaccionando instantáneamente a las exigencias del PID.
 * **Contador de Pulsos (`pulse_counter.c`):** 
