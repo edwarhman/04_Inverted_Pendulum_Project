@@ -1,6 +1,7 @@
 // src/pid_controller.c
 #include "pid_controller.h"
 #include "esp_log.h"
+#include "esp_timer.h" // Para esp_timer_get_time()
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pulse_counter.h" // Para leer la posición del encoder
@@ -9,7 +10,6 @@
 #include <math.h> // Para la función de valor absoluto fabs()
 #include <stdint.h>
 #include <stdio.h>
-#include "esp_timer.h" // Para esp_timer_get_time()
 
 /************************************************************************************
  *                                                                                  *
@@ -64,7 +64,8 @@
 // carro al centro.
 #define POSITION_CONTROL_GAIN 0.0003f // 0.001//0.0005f
 
-// Límite máximo para el offset del setpoint. Evita que pida ángulos demasiado grandes. (En radianes)
+// Límite máximo para el offset del setpoint. Evita que pida ángulos demasiado
+// grandes. (En radianes)
 #define MAX_SETPOINT_OFFSET 0.268f // Equivale a unos ~15 grados
 
 // máxima frecuencia
@@ -120,7 +121,8 @@ float pid_get_kd(void) { return g_angle_controller.kd; }
 // --- establecer el setpoint externamente ---
 void pid_set_absolute_setpoint_rad(float new_setpoint_rad) {
   g_absolute_setpoint = new_setpoint_rad;
-  ESP_LOGW(TAG, "Setpoint absoluto establecido en: %.3f rad", g_absolute_setpoint);
+  ESP_LOGW(TAG, "Setpoint absoluto establecido en: %.3f rad",
+           g_absolute_setpoint);
 }
 
 void pid_enable(void) {
@@ -131,8 +133,7 @@ void pid_enable(void) {
     // Inicializar el controlador PID si no está inicializado
     if (g_angle_controller.dt == 0.0f) {
       PID_Init(&g_angle_controller, 0.046363f, 0.46415f, 0.004433f,
-               PID_LOOP_PERIOD_MS / 1000.0f, -0.72f,
-               0.72f, DEAD_BAND_ANGLE);
+               PID_LOOP_PERIOD_MS / 1000.0f, -0.72f, 0.72f, DEAD_BAND_ANGLE);
     } else {
       PID_Reset(&g_angle_controller);
     }
@@ -182,7 +183,8 @@ float pid_get_position_setpoint_m(void) { return g_position_setpoint_m; }
 
 void pid_set_position_setpoint_m(float m) {
   g_position_setpoint_m = m;
-  ESP_LOGI(TAG, "Setpoint de posición actualizado a: %.3f m", g_position_setpoint_m);
+  ESP_LOGI(TAG, "Setpoint de posición actualizado a: %.3f m",
+           g_position_setpoint_m);
 }
 float pid_get_dynamic_angle_setpoint_rad(void) {
   return g_current_dynamic_angle_setpoint;
@@ -210,8 +212,9 @@ void pid_force_disable(void) {
 bool pid_is_enabled(void) { return g_pid_enabled; }
 
 uint64_t pid_get_run_time_ms(void) {
-    if (!g_pid_enabled || g_pid_start_time_us == 0) return 0;
-    return (esp_timer_get_time() - g_pid_start_time_us) / 1000;
+  if (!g_pid_enabled || g_pid_start_time_us == 0)
+    return 0;
+  return (esp_timer_get_time() - g_pid_start_time_us) / 1000;
 }
 
 // --- Tarea Principal del Controlador ---
@@ -224,8 +227,8 @@ void pid_controller_task(void *arg) {
            -2.0f, 2.0f, DEAD_BAND_ANGLE);
 
   // Inicializar el controlador de posición (solo proporcional)
-  PID_Init(&g_position_controller, -0.4f, -0.03f, -0.11f, loop_period_in_seconds,
-           -0.034f, 0.034f, 0.0f);
+  PID_Init(&g_position_controller, -0.4f, -0.03f, -0.11f,
+           loop_period_in_seconds, -0.034f, 0.034f, 0.0f);
 
   // Inicializar el integrador de velocidad (solo I, ganancia 1)
   // Convierte la aceleración m/s^2 a velocidad m/s
@@ -255,47 +258,21 @@ void pid_controller_task(void *arg) {
     float position_setpoint_m = g_position_setpoint_m;
 
     // Calcular el offset en radianes usando el controlador de posición
-    float offset_angle_rad = PID_Compute(&g_position_controller, position_setpoint_m, current_position_m);
+    float offset_angle_rad = PID_Compute(
+        &g_position_controller, position_setpoint_m, current_position_m);
 
     // Guardar para el LCD
 
     // Calcular el setpoint dinámico (en radianes)
-    float dynamic_angle_setpoint_rad =
-        g_absolute_setpoint + offset_angle_rad;
-
-    // --- APLICAR ZONA MUERTA (DEAD BAND) ---
-    float raw_angle_error =
-        (float)dynamic_angle_setpoint - (float)current_angle;
-    float continuous_error = 0.0f;
-
-    if (raw_angle_error > DEAD_BAND_ANGLE) {
-      continuous_error = raw_angle_error - DEAD_BAND_ANGLE;
-    } else if (raw_angle_error < -DEAD_BAND_ANGLE) {
-      continuous_error = raw_angle_error + DEAD_BAND_ANGLE;
-    } else {
-      continuous_error = 0.0f;
-    }
-
-    // Calculamos un ángulo ajustado para que PID_Compute calcule el error
-    // suavemente
-    float adjusted_current_angle = dynamic_angle_setpoint - continuous_error;
+    float dynamic_angle_setpoint_rad = g_absolute_setpoint + offset_angle_rad;
 
     // 2. CALCULAR ERROR de ángulo usando el setpoint dinámico
     // La salida del PID es aceleración, se integra a velocidad
-    float acceleration =
-        PID_Compute(&g_angle_controller, dynamic_angle_setpoint_rad, current_angle_rad);
+    float acceleration = PID_Compute(
+        &g_angle_controller, dynamic_angle_setpoint_rad, current_angle_rad);
 
     // Integrador: convierte aceleración a velocidad (PID con solo Ki=1)
     float velocity = PID_Compute(&g_velocity_integrator, acceleration, 0.0f);
-
-    // CRUCIAL: Si estamos completamente dentro de la zona muerta, forzamos
-    // parar el motor Esto eliminará el temblor por completo.
-    if (continuous_error == 0.0f) {
-      velocity = 0.0f;
-      g_angle_controller.integral =
-          0.0f; // Evitar que acumule error dentro de la zona muerta
-      PID_Reset(&g_velocity_integrator); // Resetear la velocidad acumulada
-    }
 
     // 6. ACTUAR: Establecer la velocidad del motor
     set_motor_velocity(velocity);
@@ -338,7 +315,7 @@ float PID_Compute(PIDController *pid, float objetivo, float medicion_actual) {
   float D = pid->kd * (error - pid->ultimo_error) / pid->dt;
 
   // Cálculo temporal de la integral
-  float nueva_integral = pid->integral + (error/2 * pid->dt);
+  float nueva_integral = pid->integral + (error / 2 * pid->dt);
   float I = pid->ki * nueva_integral;
 
   float salida_total = P + I + D;
@@ -419,38 +396,39 @@ int velocity_to_motor_frequency(float linear_velocity) {
 
 /**
  * @brief Establece la velocidad del motor a una velocidad objetivo.
- * Transforma la velocidad del carrito en m/s nuevamente al dominio de pulsos (Hz)
+ * Transforma la velocidad del carrito en m/s nuevamente al dominio de pulsos
+ * (Hz)
  * @param velocity_ms La velocidad deseada en m/s
  */
 void set_motor_velocity(float velocity_ms) {
   // Convertir de metros/segundo directos a pulsos/segundo (Hz)
   int target_frequency = pid_meters_to_pulses(velocity_ms);
-  
+
   // 6. ACTUAR: Si la salida no es cero, enviar comando al motor
-  if (abs(target_frequency) > BASE_FREQUENCY/5) {
-  int direction = (velocity_ms > 0) ? 1 : 0;
-  
-  int frequency = 0;
-  if (abs(target_frequency) < BASE_FREQUENCY) {
-    frequency = BASE_FREQUENCY;
-  } else {
-    frequency = abs(target_frequency);
-  }
+  if (abs(target_frequency) > BASE_FREQUENCY / 5) {
+    int direction = (velocity_ms > 0) ? 1 : 0;
 
-  // Estimación de odometría: ¿Cuántos pulsos se van a dar en este ciclo
-  // (aprox)?
-  float pulses_this_cycle = (float)frequency * (PID_LOOP_PERIOD_MS / 1000.0f);
-  if (direction == 1) {
-    g_car_position_pulses += (int32_t)pulses_this_cycle;
-  } else {
-    g_car_position_pulses -= (int32_t)pulses_this_cycle;
-  }
+    int frequency = 0;
+    if (abs(target_frequency) < BASE_FREQUENCY) {
+      frequency = BASE_FREQUENCY;
+    } else {
+      frequency = abs(target_frequency);
+    }
 
-  // Enviar el comando de velocidad continua
-  motor_command_t cmd = {.num_pulses = 0, // Ignorado por el nuevo enfoque
-                         .frequency = frequency,
-                         .direction = direction};
-  xQueueOverwrite(motor_command_queue, &cmd);
+    // Estimación de odometría: ¿Cuántos pulsos se van a dar en este ciclo
+    // (aprox)?
+    float pulses_this_cycle = (float)frequency * (PID_LOOP_PERIOD_MS / 1000.0f);
+    if (direction == 1) {
+      g_car_position_pulses += (int32_t)pulses_this_cycle;
+    } else {
+      g_car_position_pulses -= (int32_t)pulses_this_cycle;
+    }
+
+    // Enviar el comando de velocidad continua
+    motor_command_t cmd = {.num_pulses = 0, // Ignorado por el nuevo enfoque
+                           .frequency = frequency,
+                           .direction = direction};
+    xQueueOverwrite(motor_command_queue, &cmd);
   } else {
     // Si la salida del PID es cercana a cero, apagamos el motor.
     motor_command_t stop_cmd = {
@@ -461,32 +439,33 @@ void set_motor_velocity(float velocity_ms) {
 
 // --- Abstracción de Unidades Físicas (Odometría) ---
 
-// Función estática auxiliar para obtener la constante de conversión (Metros por pulso)
+// Función estática auxiliar para obtener la constante de conversión (Metros por
+// pulso)
 static float get_meters_per_pulse(void) {
-    // Reemplazando fórmulas de microstepping/poleas por la constante ya utilizada en el proyecto
-    float PULSOS_POR_CM = 2500.0f;
-    float pulsos_por_metro = PULSOS_POR_CM * 100.0f;
-    return 1.0f / pulsos_por_metro;
+  // Reemplazando fórmulas de microstepping/poleas por la constante ya utilizada
+  // en el proyecto
+  float PULSOS_POR_CM = 2500.0f;
+  float pulsos_por_metro = PULSOS_POR_CM * 100.0f;
+  return 1.0f / pulsos_por_metro;
 }
 
 float pid_get_car_position_m(void) {
-    return (float)g_car_position_pulses * get_meters_per_pulse();
+  return (float)g_car_position_pulses * get_meters_per_pulse();
 }
 
 float pid_get_car_position_cm(void) {
-    return pid_get_car_position_m() * 100.0f;
+  return pid_get_car_position_m() * 100.0f;
 }
 
 float pid_get_car_position_mm(void) {
-    return pid_get_car_position_m() * 1000.0f;
+  return pid_get_car_position_m() * 1000.0f;
 }
 
-int32_t pid_get_car_position_pulses(void) {
-    return g_car_position_pulses;
-}
+int32_t pid_get_car_position_pulses(void) { return g_car_position_pulses; }
 
 int pid_meters_to_pulses(float meters) {
-    float meters_per_pulse = get_meters_per_pulse();
-    if (meters_per_pulse == 0.0f) return 0; // Evitar división por cero
-    return (int)(meters / meters_per_pulse);
+  float meters_per_pulse = get_meters_per_pulse();
+  if (meters_per_pulse == 0.0f)
+    return 0; // Evitar división por cero
+  return (int)(meters / meters_per_pulse);
 }
