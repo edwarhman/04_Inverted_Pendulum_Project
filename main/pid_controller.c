@@ -266,26 +266,6 @@ void pid_controller_task(void *arg) {
 
     // Calcular el setpoint dinámico (en radianes)
     float dynamic_angle_setpoint_rad = g_absolute_setpoint + offset_angle_rad;
-<<<<<<< HEAD
-
-    // --- APLICAR ZONA MUERTA (DEAD BAND) ---
-    float raw_angle_error =
-        (float)dynamic_angle_setpoint - (float)current_angle;
-    float continuous_error = 0.0f;
-
-    if (raw_angle_error > DEAD_BAND_ANGLE) {
-      continuous_error = raw_angle_error - DEAD_BAND_ANGLE;
-    } else if (raw_angle_error < -DEAD_BAND_ANGLE) {
-      continuous_error = raw_angle_error + DEAD_BAND_ANGLE;
-    } else {
-      continuous_error = 0.0f;
-    }
-
-    // Calculamos un ángulo ajustado para que PID_Compute calcule el error
-    // suavemente
-    float adjusted_current_angle = dynamic_angle_setpoint - continuous_error;
-=======
->>>>>>> 940ebe71ff7594c50622afe158fcf826cebaa8f9
 
     // 2. CALCULAR ERROR de ángulo usando el setpoint dinámico
     // La salida del PID es aceleración, se integra a velocidad
