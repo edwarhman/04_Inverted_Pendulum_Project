@@ -34,7 +34,7 @@ static const char *TAG = "SS_CTRL";
 #define DT (SS_LOOP_PERIOD_MS / 1000.0f)
 
 // Límite de velocidad del carro (m/s) — igual que el integrador previo
-#define VEL_CMD_LIMIT 0.66f
+#define VEL_CMD_LIMIT 0.7f
 
 // =============================================================================
 // 1. MATRICES DEL SISTEMA DISCRETO  (calculadas en MATLAB, c2d ZOH, Ts=10 ms)
@@ -44,11 +44,11 @@ static const char *TAG = "SS_CTRL";
 //  Ad (4×4) — Matriz de transición de estado
 static const float Ad[4][4] = {{1.0000f, 0.0100f, 0.0000f, 0.0000f},
                                {0.0000f, 1.0000f, 0.0000f, 0.0000f},
-                               {0.0000f, 0.0000f, 1.0057f, 0.0100f},
-                               {0.0000f, 0.0000f, 1.1341f, 1.0057f}};
+                               {0.0000f, 0.0000f, 1.0018f, 0.0100f},
+                               {0.0000f, 0.0000f, 0.3681f, 1.0018f}};
 
 //  Bd (4×1) — Vector de entrada discreta
-static const float Bd[4] = {0.0001f, 0.0100f, -0.0012f, -0.2312f};
+static const float Bd[4] = {0.000051f, 0.0100f, -0.000375f, -0.0750};
 
 //  Cd (3×4) — Matriz de salida: y = [x_pos, x_dot, theta]
 static const float Cd[3][4] = {
@@ -63,8 +63,8 @@ static const float Cd[3][4] = {
 //  agresiva sobre error de theta
 static const float L_obs[4][3] = {{0.5000f, 0.0100f, 0.0000f},
                                   {0.0000f, 0.4500f, 0.0000f},
-                                  {0.0000f, 0.0000f, 1.1613f},
-                                  {0.0000f, 0.0000f, 34.7253f}};
+                                  {0.0000f, 0.0000f, 1.1537f},
+                                  {0.0000f, 0.0000f, 33.55973f}};
 
 // =============================================================================
 // 2. GANANCIAS DEL SERVOSISTEMA LQI
@@ -72,11 +72,11 @@ static const float L_obs[4][3] = {{0.5000f, 0.0100f, 0.0000f},
 //    K_aug  = [K_x, K_xdot, K_theta, K_w, K_i_aug]
 //    K_i aquí ya es -K_aug(5) según la convención del script MATLAB
 // =============================================================================
-static const float K_x = -8.328162f;
-static const float K_xdot = -6.777184f;
-static const float K_theta = -19.903805f;
-static const float K_w = -2.760653f;
-static const float K_i = -4.754309f;
+static const float K_x = -10.9002f;
+static const float K_xdot = -9.1673f;
+static const float K_theta = -26.4308f;
+static const float K_w = -4.9308f;
+static const float K_i = -6;
 
 // =============================================================================
 // 3. VARIABLES GLOBALES DE ESTADO
@@ -102,7 +102,7 @@ static float g_u_prev = 0.0f;  // u[k-1] usado en la predicción del observador
 static float g_vel_cmd = 0.0f; // velocidad integrada enviada al motor (m/s)
 
 // Referencia de posición (m)
-static float g_ref_posicion = 0.10f;
+static float g_ref_posicion = 0.02f;
 
 // Integrador LQI — 5to estado del sistema aumentado (Ki=1, límites ±2 m·s)
 static PIDController g_ss_integrator;
@@ -201,7 +201,7 @@ void state_space_controller_task(void *arg) {
 
   // Integrador LQI: integra el error de posición  x_i[k+1] = x_i[k] + (r-x)·Ts
   // Kp=0, Ki=1, Kd=0 → salida = Σ(error)·DT, saturada en ±2 m·s
-  PID_Init(&g_ss_integrator, 0.0f, 1.0f, 0.0f, DT, -2.0f, 2.0f, 0.0f);
+  PID_Init(&g_ss_integrator, 0.0f, 1.0f, 0.0f, DT, -0.1f, 0.1f, 0.0f);
 
   ESP_LOGI(
       TAG,
