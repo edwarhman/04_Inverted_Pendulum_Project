@@ -102,7 +102,7 @@ static float g_u_prev = 0.0f;  // u[k-1] usado en la predicción del observador
 static float g_vel_cmd = 0.0f; // velocidad integrada enviada al motor (m/s)
 
 // Referencia de posición (m)
-static float g_ref_posicion = 0.02f;
+static float g_ref_posicion = 0.2f;
 
 // Integrador LQI — 5to estado del sistema aumentado (Ki=1, límites ±2 m·s)
 static PIDController g_ss_integrator;
