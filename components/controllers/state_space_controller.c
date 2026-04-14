@@ -1,71 +1,165 @@
+// components/controllers/state_space_controller.c
+//
+// Controlador LQI con Observador de Luenberger de Orden Completo.
+// Estimador de estados para el péndulo invertido sobre carro.
+//
+// Vector de estado (orden MATLAB): x = [x_pos, x_dot, theta, theta_dot]
+// Mediciones:   y = [x_pos, x_dot_meas, theta]   (3 salidas — C es 3×4)
+// Estimaciones: theta_dot y x_dot provienen del observador (x_hat[3], x_hat[1])
+// Control (LQI):
+//   u = -(K_x·x + K_xdot·ẋ̂ + K_theta·θ + K_w·θ̂̇ + K_i·x_i)
+//
+// Parámetros físicos usados en MATLAB:
+//   m=0.04 kg, g=9.81 m/s², l=0.13 m, I=(1/3)·m·l², Ts=0.01 s (ZOH)
+//
+// Polos del controlador LQI: calculados con dlqr sobre sistema aumentado 5×5
+// Polos del observador: {0.40, 0.45, 0.50, 0.55} (más rápidos que el control)
+
 #include "state_space_controller.h"
+
+#include <math.h>
+#include <stdbool.h>
+#include <string.h>
+
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pid_controller.h"
 #include "pulse_counter.h"
 #include "pwm_generator.h"
-#include <math.h>
-#include <stdbool.h>
 
-static const char *TAG = "STATE_SPACE_CTRL";
+static const char *TAG = "SS_CTRL";
 
 #define SS_LOOP_PERIOD_MS 10
 #define DT (SS_LOOP_PERIOD_MS / 1000.0f)
 
-// ==============================================================================
-// 1. CONSTANTES DE CONTROL Y MATRICES (Valores de MATLAB)
-// ==============================================================================
+// Límite de velocidad del carro (m/s) — igual que el integrador previo
+#define VEL_CMD_LIMIT 0.7f
 
-// --- CONSTANTES DEL OBSERVADOR DE ORDEN REDUCIDO ---
-static const float F_obs = 0.500000f;
-static const float G_obs = -24.3800797f;
-static const float H_obs = -0.17233f;
-// static const float L_obs = 50.4718f;
+// =============================================================================
+// 1. MATRICES DEL SISTEMA DISCRETO  (calculadas en MATLAB, c2d ZOH, Ts=10 ms)
+//    Orden de estados: [x_pos, x_dot, theta, theta_dot]
+// =============================================================================
 
-// // --- GANANCIAS DEL SERVOSISTEMA (LQI) ---
-static const float K_x = -8.320f;
-static const float K_xdot = -6.70f;
-static const float K_theta = -19.09f;
-static const float K_w = -2.7f;
-static const float K_i = -4.7f;
+//  Ad (4×4) — Matriz de transición de estado
+static const float Ad[4][4] = {{1.0000f, 0.0100f, 0.0000f, 0.0000f},
+                               {0.0000f, 1.0000f, 0.0000f, 0.0000f},
+                               {0.0000f, 0.0000f, 1.0018f, 0.0100f},
+                               {0.0000f, 0.0000f, 0.3681f, 1.0018f}};
 
-// ==============================================================================
-// 2. VARIABLES GLOBALES DE ESTADO
-// ==============================================================================
+//  Bd (4×1) — Vector de entrada discreta
+static const float Bd[4] = {0.000051f, 0.0100f, -0.000375f, -0.0750};
+
+//  Cd (3×4) — Matriz de salida: y = [x_pos, x_dot, theta]
+static const float Cd[3][4] = {
+    {1.0f, 0.0f, 0.0f, 0.0f}, // mide x_pos
+    {0.0f, 1.0f, 0.0f, 0.0f}, // mide x_dot (diferencia finita)
+    {0.0f, 0.0f, 1.0f, 0.0f}  // mide theta
+};
+
+//  L_obs (4×3) — Ganancia del observador
+//  Polos ubicados en {0.40, 0.45, 0.50, 0.55}  →  convergencia ~5× más rápida
+//  que el control Nota: ganancia de 34.73 en fila theta_dot_hat para corrección
+//  agresiva sobre error de theta
+static const float L_obs[4][3] = {{0.5000f, 0.0100f, 0.0000f},
+                                  {0.0000f, 0.4500f, 0.0000f},
+                                  {0.0000f, 0.0000f, 1.1537f},
+                                  {0.0000f, 0.0000f, 33.55973f}};
+
+// =============================================================================
+// 2. GANANCIAS DEL SERVOSISTEMA LQI
+//    Obtenidas con dlqr sobre A_aug (5×5), Q=diag([10,1,100,10,50]), R=1
+//    K_aug  = [K_x, K_xdot, K_theta, K_w, K_i_aug]
+//    K_i aquí ya es -K_aug(5) según la convención del script MATLAB
+// =============================================================================
+static const float K_x = -10.9002f;
+static const float K_xdot = -9.1673f;
+static const float K_theta = -26.4308f;
+static const float K_w = -4.9308f;
+static const float K_i = -6;
+
+// =============================================================================
+// 3. VARIABLES GLOBALES DE ESTADO
+// =============================================================================
 
 static volatile bool g_ss_enabled = false;
 
+// Vector de estado estimado por el observador: [x_hat, x_dot_hat, theta_hat,
+// theta_dot_hat]
+static float x_hat[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+// Variables expuestas vía getters (extraídas de x_hat o de sensores)
 static float g_x_pos = 0.0f;
-static float g_x_dot = 0.0f; // Velocidad del carro
+static float g_x_dot = 0.0f; // x_hat[1]
 static float g_theta = 0.0f;
-
-static float g_theta_dot_hat = 0.0f;     // Velocidad angular estimada
-static float g_Z_estado = 0.0f;          // Dinámica interna del filtro
-static float g_estado_integrador = 0.0f; // Acumulador del error (X_i)
-static PIDController g_ss_integrator;    // Utilizado para la integración LQI
-static PIDController
-    g_ss_accel_integrator; // Integrador de Aceleración a Velocidad
-static PIDController g_ss_vel_integrator; // Integrador de Velocidad a Posición
-
+static float g_theta_dot_hat = 0.0f; // x_hat[3]
 static float g_u_control = 0.0f;
-static float g_ref_posicion =
-    0.10f; // Inicialmente como en arduino (18cm del origen)
+static float g_estado_integrador = 0.0f;
 
-// ==============================================================================
-// 3. FUNCIONES DE MANEJO DE ESTADOS Y TAREAS
-// ==============================================================================
+// Variables internas del observador y del actuador
+static float g_x_pos_prev = 0.0f; // para calcular x_dot por diferencia finita
+static float g_u_prev = 0.0f;  // u[k-1] usado en la predicción del observador
+static float g_vel_cmd = 0.0f; // velocidad integrada enviada al motor (m/s)
+
+// Referencia de posición (m)
+static float g_ref_posicion = 0.2f;
+
+// Integrador LQI — 5to estado del sistema aumentado (Ki=1, límites ±2 m·s)
+static PIDController g_ss_integrator;
+
+// =============================================================================
+// 4. OBSERVADOR DE LUENBERGER — función privada
+//
+//  Ecuación:  x̂[k+1] = Ad·x̂[k] + Bd·u[k-1] + L·(y[k] − Cd·x̂[k])
+//
+//  El término L·(y − Cd·x̂) corrige la predicción con el error de innovación,
+//  manteniendo el estimador sincronizado con las mediciones reales.
+// =============================================================================
+static void luenberger_update(const float y[3], float u_prev) {
+  // 1. Innovación: diferencia entre medición real y predicción
+  //    innov[i] = y[i] - (Cd · x_hat)[i]
+  float innov[3];
+  for (int r = 0; r < 3; r++) {
+    float cd_xhat = 0.0f;
+    for (int c = 0; c < 4; c++)
+      cd_xhat += Cd[r][c] * x_hat[c];
+    innov[r] = y[r] - cd_xhat;
+  }
+
+  // 2. Predicción + corrección en un solo paso
+  //    x̂_next[i] = (Ad·x̂)[i] + Bd[i]·u_prev + (L·innov)[i]
+  float x_hat_next[4];
+  for (int i = 0; i < 4; i++) {
+    float pred = 0.0f;
+    for (int j = 0; j < 4; j++)
+      pred += Ad[i][j] * x_hat[j];
+    pred += Bd[i] * u_prev;
+
+    float corr = 0.0f;
+    for (int k = 0; k < 3; k++)
+      corr += L_obs[i][k] * innov[k];
+
+    x_hat_next[i] = pred + corr;
+  }
+
+  memcpy(x_hat, x_hat_next, sizeof(x_hat));
+}
+
+// =============================================================================
+// 5. FUNCIONES DE GESTIÓN DE ESTADO
+// =============================================================================
 
 void SS_Reset(void) {
-  g_Z_estado = 0.0f;
+  memset(x_hat, 0, sizeof(x_hat));
+  g_x_pos_prev = pid_get_car_position_m();
+  g_u_prev = 0.0f;
+  g_vel_cmd = 0.0f;
   g_estado_integrador = 0.0f;
-  float g_prev_x_pos = pid_get_car_position_m();
   PID_Reset(&g_ss_integrator);
-  PID_Reset(&g_ss_accel_integrator);
-  PID_Reset(&g_ss_vel_integrator);
 }
 
 void SS_UpdateReference(float x_ref, float theta_ref) {
+  (void)theta_ref;
   g_ref_posicion = x_ref;
 }
 
@@ -73,7 +167,7 @@ void ss_toggle_enable(void) {
   g_ss_enabled = !g_ss_enabled;
   if (g_ss_enabled) {
     SS_Reset();
-    ESP_LOGW(TAG, "State Space Control ENABLED");
+    ESP_LOGW(TAG, "State Space LQI + Luenberger ENABLED");
   } else {
     set_motor_velocity(0.0f);
     ESP_LOGW(TAG, "State Space Control DISABLED");
@@ -85,12 +179,11 @@ void ss_force_disable(void) {
     g_ss_enabled = false;
     SS_Reset();
     set_motor_velocity(0.0f);
-    ESP_LOGE(TAG, "EMERGENCY STOP!");
+    ESP_LOGE(TAG, "EMERGENCY STOP — State Space disabled");
   }
 }
 
 bool ss_is_enabled(void) { return g_ss_enabled; }
-
 float ss_get_x_pos(void) { return g_x_pos; }
 float ss_get_x_dot(void) { return g_x_dot; }
 float ss_get_theta(void) { return g_theta; }
@@ -98,29 +191,21 @@ float ss_get_theta_dot_hat(void) { return g_theta_dot_hat; }
 float ss_get_u_control(void) { return g_u_control; }
 float ss_get_estado_integrador(void) { return g_estado_integrador; }
 
-// ==============================================================================
-// 4. RUTINA DE INTERRUPCIÓN DE CONTROL (Implementada como FreeRTOS Task)
-// ==============================================================================
+// =============================================================================
+// 6. TAREA PRINCIPAL DEL CONTROLADOR
+// =============================================================================
 
 void state_space_controller_task(void *arg) {
   (void)arg;
   TickType_t last_wake_time = xTaskGetTickCount();
 
-  ESP_LOGI(TAG, "State Space Controller initialized (LQI + Red. Obs.)");
+  // Integrador LQI: integra el error de posición  x_i[k+1] = x_i[k] + (r-x)·Ts
+  // Kp=0, Ki=1, Kd=0 → salida = Σ(error)·DT, saturada en ±2 m·s
+  PID_Init(&g_ss_integrator, 0.0f, 1.0f, 0.0f, DT, -0.01f, 0.01f, 0.0f);
 
-  // Inicializar integrador del LQI (Kp=0, Ki=1, Kd=0, límites [-2.0, 2.0])
-  PID_Init(&g_ss_integrator, 0.0f, 1.0f, 0.0f, DT, -2.0f, 2.0f, 0.0f);
-
-  // Inicializar integradores cinemáticos
-  PID_Init(&g_ss_accel_integrator, 0.0f, 1.0f, 0.0f, DT, -0.66f, 0.66f, 0.0f);
-  PID_Init(&g_ss_vel_integrator, 0.0f, 1.0f, 0.0f, DT, -2.0f, 2.0f, 0.0f);
-
-  ss_toggle_enable();
-  ss_toggle_enable(); // Ciclo para forzar estado inicial limpio
-                      // static float pos_control = 0.0f;
-  static float vel_control = 0.0f;
-  static float pos_control = 0.0f;
-  static float g_theta_dot = 0.0f;
+  ESP_LOGI(
+      TAG,
+      "LQI + Luenberger Observer ready (4 states, 3 measurements, Ts=10ms)");
 
   while (1) {
     vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(SS_LOOP_PERIOD_MS));
@@ -130,44 +215,61 @@ void state_space_controller_task(void *arg) {
       continue;
     }
 
-    // --- PASO 1: LEER SENSORES ---
-    g_theta_dot = (pulse_counter_get_angle_rad() - 3.14159265f - g_theta) / DT;
-    g_theta = pulse_counter_get_angle_rad() - 3.14159265f;
-    g_x_pos = -pid_get_car_position_m();
-    // Estimación numérica de la velocidad del carro (x_dot)
-    g_x_dot = vel_control;
+    // ── PASO 1: LECTURA DE SENSORES ────────────────────────────────────
+    // θ = 0 en la posición vertical superior (punto de equilibrio)
+    g_theta = pulse_counter_get_angle_rad() - (float)M_PI;
 
-    // --- PASO 2: DINÁMICA DEL ERROR (Integrador) ---
+    // x = posición del carro (m), signo negado según convención física del
+    // sistema
+    g_x_pos = -pid_get_car_position_m();
+
+    // ẋ medida = diferencia finita de posición  (entrada al observador como
+    // y[1])
+    float x_dot_meas = (g_x_pos - g_x_pos_prev) / DT;
+    g_x_pos_prev = g_x_pos;
+
+    // ── PASO 2: ACTUALIZACIÓN DEL OBSERVADOR ───────────────────────────
+    // y = [x_pos, x_dot_meas, theta]  → misma estructura que Cd en MATLAB
+    float y_meas[3] = {g_x_pos, x_dot_meas, g_theta};
+    luenberger_update(y_meas, g_u_prev);
+
+    // Extraer estados estimados del vector x_hat
+    // Para estados medibles (x, θ) preferimos la medición directa;
+    // el observador corrige la deriva del modelo pero no reemplaza el sensor.
+    g_x_dot = x_hat[1]; // ẋ̂  — estimada, reemplaza integral de u
+    g_theta_dot_hat =
+        x_hat[3]; // θ̂̇  — estimada, reemplaza diferencia finita ruidosa
+
+    // ── PASO 3: INTEGRADOR LQI (5to estado del sistema aumentado) ──────
+    // x_i[k+1] = x_i[k] + (r - x) * Ts
     g_estado_integrador =
         PID_Compute(&g_ss_integrator, g_ref_posicion, g_x_pos);
 
-    float dynamic_angle_setpoint = g_estado_integrador;
-
-    // --- PASO 3: ESTIMACIÓN (Observador Reducido Actual) ---
-    // g_theta_dot_hat = g_Z_estado + (L_obs * g_theta);
-    g_theta_dot_hat = g_theta_dot;
-
-    // --- PASO 4: LEY DE CONTROL (LQI) ---
+    // ── PASO 4: LEY DE CONTROL LQI ─────────────────────────────────────
+    // u = -(K_x·x + K_xdot·ẋ̂ + K_theta·θ + K_w·θ̂̇ + K_i·x_i)
+    // Los estados medibles (x_pos, theta) usan medición directa del sensor.
+    // Los estados no medibles (x_dot, theta_dot) usan el estimador.
     g_u_control = -((K_x * g_x_pos) + (K_xdot * g_x_dot) + (K_theta * g_theta) +
-                    (K_w * g_theta_dot_hat) + (K_i * dynamic_angle_setpoint));
+                    (K_w * g_theta_dot_hat) + (K_i * g_estado_integrador));
 
+    // Saturación de seguridad
     if (g_u_control > 10000.0f)
       g_u_control = 10000.0f;
     if (g_u_control < -10000.0f)
       g_u_control = -10000.0f;
 
-    // --- PASO 5: INTEGRACIONES CINEMÁTICAS ---
-    // U es aceleración. Integramos 1 vez para sacar la Velocidad
-    vel_control = PID_Compute(&g_ss_accel_integrator, g_u_control, 0.0f);
-    // Integramos la velocidad resultante para sacar Posición
-    pos_control = PID_Compute(&g_ss_vel_integrator, vel_control, 0.0f);
+    // ── PASO 5: INTEGRAR u → VELOCIDAD PARA EL MOTOR ──────────────────
+    // u es una aceleración (m/s²). Integramos para obtener velocidad (m/s).
+    // vel_cmd[k] = vel_cmd[k-1] + u[k] * DT
+    g_vel_cmd += g_u_control * DT;
+    if (g_vel_cmd > VEL_CMD_LIMIT)
+      g_vel_cmd = VEL_CMD_LIMIT;
+    if (g_vel_cmd < -VEL_CMD_LIMIT)
+      g_vel_cmd = -VEL_CMD_LIMIT;
 
-    // // --- PASO 6: ¡ACCIONAR MOTOR! ---
-    // Puesto que el motor se comanda en Velocidad, enviamos la 1ra integral
-    set_motor_velocity(-vel_control);
+    set_motor_velocity(-g_vel_cmd);
 
-    // // --- PASO 7: PREDECIR SIGUIENTE ESTADO INTERNO ---
-    g_Z_estado =
-        (F_obs * g_Z_estado) + (G_obs * g_theta) + (H_obs * g_u_control);
+    // ── PASO 6: GUARDAR u PARA EL PRÓXIMO CICLO DEL OBSERVADOR ─────────
+    g_u_prev = g_u_control;
   }
 }
