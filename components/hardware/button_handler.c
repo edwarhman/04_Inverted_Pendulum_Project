@@ -57,6 +57,8 @@ static const char *TAG = "BUTTON_HANDLER";
 // --- Contador de posición del carro en micropasos ---
 // static int32_t g_car_position_pulses = 0;
 
+static int32_t g_calibrated_travel_range_pulses = 0; // Guardar el rango de recorrido calibrado
+
 // Función auxiliar para botones de comando (pulsar y soltar)
 static bool is_command_button_pressed(int gpio_num) {
   if (gpio_get_level(gpio_num) == 0) {
@@ -95,7 +97,8 @@ void button_handler_task(void *arg) {
 
   int last_button_state = 1; // 1 = no presionado
   // int last_sequence_button_state = 1;
-  int last_stop_button_state = 1;
+  int last_stop_button_state_right = 1;
+  int last_stop_button_state_left = 1;
   int last_view_button_state = 1;
 
   while (1) {
@@ -110,31 +113,43 @@ void button_handler_task(void *arg) {
     }
     last_view_button_state = current_view_button_state;
     // --- AÑADIDO: Lógica para la Parada de Emergencia (máxima prioridad) ---
-    int current_stop_button_state = gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT);
-    if (last_stop_button_state == 1 && current_stop_button_state == 0) {
+    int current_stop_button_state_right = gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT);
+    if (last_stop_button_state_right == 1 && current_stop_button_state_right == 0) {
 
       if (gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT) == 0) {
         // Llama a la función que solo deshabilita
         pid_force_disable();
         ss_force_disable(); // Detener ambos siempre
         ss_red_force_disable();
+
+        // Re-homing dinámico: Si conocemos el centro, recalibramos en el límite negativo (-travel_range/2)
+        if (g_calibrated_travel_range_pulses > 0) {
+            g_car_position_pulses = -(g_calibrated_travel_range_pulses / 2);
+            ESP_LOGW(TAG, "Re-homing RIGHT LIMIT: position reset to %ld", (long)g_car_position_pulses);
+        }
       }
       // vTaskDelay(pdMS_TO_TICKS(50)); // Debounce
     }
-    last_stop_button_state = current_stop_button_state;
+    last_stop_button_state_right = current_stop_button_state_right;
 
-    int current_stop_button_state_new =
+    int current_stop_button_state_left =
         gpio_get_level(EMERGENCY_STOP_GPIO_LEFT);
-    if (last_stop_button_state == 1 && current_stop_button_state_new == 0) {
+    if (last_stop_button_state_left == 1 && current_stop_button_state_left == 0) {
 
       if (gpio_get_level(EMERGENCY_STOP_GPIO_LEFT) == 0) {
         // Llama a la función que solo deshabilita
         pid_force_disable();
         ss_force_disable(); // Detener ambos
         ss_red_force_disable();
+
+        // Re-homing dinámico: Si conocemos el centro, recalibramos en el límite positivo (+travel_range/2)
+        if (g_calibrated_travel_range_pulses > 0) {
+            g_car_position_pulses = (g_calibrated_travel_range_pulses / 2);
+            ESP_LOGW(TAG, "Re-homing LEFT LIMIT: position reset to %ld", (long)g_car_position_pulses);
+        }
       }
     }
-    last_stop_button_state = current_stop_button_state_new;
+    last_stop_button_state_left = current_stop_button_state_left;
 
     int current_button_state = gpio_get_level(ENABLE_PID_BUTTON_GPIO);
 
@@ -381,6 +396,7 @@ void button_handler_start_calibration(void) {
 
   // 3. Calcular el centro y mover el carro
   int32_t travel_range = abs(limit_right_pos - limit_left_pos);
+  g_calibrated_travel_range_pulses = travel_range; // GUARDAMOS EL RANGO
   int32_t center_pos = limit_left_pos + (travel_range / 2);
   ESP_LOGW(TAG, "Recorrido: %ld pulsos. Centro: %ld", travel_range, center_pos);
 

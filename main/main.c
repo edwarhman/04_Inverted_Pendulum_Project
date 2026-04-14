@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 
-
 // 1. Inclusión de todas las cabeceras de los módulos
 #include "bluetooth_telemetry.h" // Módulo Bluetooth
 #include "button_handler.h"      // Para la tarea de lectura del botón
@@ -12,12 +11,13 @@
 #include "lcd_controller.h" // ¡Solo incluimos nuestro módulo!
 #include "nvs_flash.h"      // Para la memoria no volátil
 #include "pid_controller.h"
-#include "pulse_counter.h" // Para la tarea de lectura del encoder
-#include "pwm_generator.h" // Para la tarea de control del motor
+#include "pulse_counter.h"  // Para la tarea de lectura del encoder
+#include "pwm_generator.h"  // Para la tarea de control del motor
+#include "simulink_comms.h" // Telemetría binaria hacia Simulink por UART0
 #include "state_space_controller.h"
 #include "state_space_reducido.h"
 #include "system_status.h"
-#include "simulink_comms.h" // Telemetría binaria hacia Simulink por UART0
+
 
 #define USE_STATE_SPACE_CONTROLLER 1
 
@@ -40,10 +40,10 @@ void app_main(void) {
   }
   ESP_ERROR_CHECK(ret);
 
-  pwm_init();                 // inicializa y configura pines del driver
-  pulse_counter_init();       // inicializa y configura pines del encoder
-  lcd_init();                 // Inicializar la pantalla
-  bluetooth_telemetry_init(); // Inicializar servicio de telemetría Bluetooth
+  pwm_init();           // inicializa y configura pines del driver
+  pulse_counter_init(); // inicializa y configura pines del encoder
+  lcd_init();           // Inicializar la pantalla
+  // bluetooth_telemetry_init(); // Inicializar servicio de telemetría Bluetooth
 
   // Mensaje de bienvenida en la pantalla
   lcd_clear();
@@ -74,10 +74,11 @@ void app_main(void) {
               NULL, 4, NULL);
 
   // Inicializar telemetría Simulink (UART0, 115200 baud, 6 variables TX, 0 RX)
-  // NOTA: Los logs de ESP_LOG están desactivados para mantener el stream binario limpio.
+  // NOTA: Los logs de ESP_LOG están desactivados para mantener el stream
+  // binario limpio.
   simulink_comms_init(UART_NUM_0, 115200, 6, 0);
-  simulink_comms_start_tasks(3, tskNO_AFFINITY, 10); // Prioridad 3, 10ms por paquete (100 Hz)
-
+  simulink_comms_start_tasks(3, tskNO_AFFINITY,
+                             10); // Prioridad 3, 10ms por paquete (100 Hz)
 
   // Tarea que inicializa el PCNT y reporta la posición del encoder para
   // depuración xTaskCreate(pulse_counter_task, "pulse_counter_task",
