@@ -5,9 +5,9 @@
 #include "pid_controller.h"
 #include "pulse_counter.h"
 #include "pwm_generator.h"
+#include "system_status.h"
 #include <math.h>
 #include <stdbool.h>
-#include "system_status.h"
 
 static const char *TAG = "STATE_SPACE_RED";
 
@@ -19,6 +19,7 @@ static const char *TAG = "STATE_SPACE_RED";
 // ==============================================================================
 
 typedef struct {
+  float L_obs;
   float F_obs;
   float G_obs;
   float H_obs;
@@ -29,28 +30,27 @@ typedef struct {
   float K_i;
 } LQR_Red_Params;
 
-static const LQR_Red_Params red_params_long = {
-  .F_obs = 0.500000f,
-  .G_obs = -24.3800797f,
-  .H_obs = -0.17233f,
-  .K_x = -8.320f,
-  .K_xdot = -6.70f,
-  .K_theta = -19.09f,
-  .K_w = -2.7f,
-  .K_i = -4.7f
-};
+static const LQR_Red_Params red_params_long = {.L_obs = 50,
+                                               15,
+                                               .F_obs = 0.500000f,
+                                               .G_obs = -24.8f,
+                                               .H_obs = -0.056f,
+                                               .K_x = -29.90f,
+                                               .K_xdot = -22.0110f,
+                                               .K_theta = -48.71f,
+                                               .K_w = -7.25f,
+                                               .K_i = -18.6f};
 
 // PLACEHOLDER: Usando mismos valores para la varilla corta por ahora.
-static const LQR_Red_Params red_params_short = {
-  .F_obs = 0.500000f,
-  .G_obs = -24.3800797f,
-  .H_obs = -0.17233f,
-  .K_x = -8.320f,
-  .K_xdot = -6.70f,
-  .K_theta = -19.09f,
-  .K_w = -2.7f,
-  .K_i = -4.7f
-};
+static const LQR_Red_Params red_params_short = {.L_obs = 50.47,
+                                                .F_obs = 0.500000f,
+                                                .G_obs = -24.3800797f,
+                                                .H_obs = -0.17233f,
+                                                .K_x = -8.32,
+                                                .K_xdot = -6.7f,
+                                                .K_theta = -19.9f,
+                                                .K_w = -2.76f,
+                                                .K_i = -6.0f}; // -4.4
 
 // ==============================================================================
 // 2. VARIABLES GLOBALES DE ESTADO
@@ -131,7 +131,7 @@ void state_space_reducido_task(void *arg) {
   ESP_LOGI(TAG, "State Space Controller REDUCIDO initialized");
 
   // Inicializar integrador del LQI (Kp=0, Ki=1, Kd=0, límites [-2.0, 2.0])
-  PID_Init(&g_ss_integrator, 0.0f, 1.0f, 0.0f, DT, -0.01f, 0.01f, 0.0f);
+  PID_Init(&g_ss_integrator, 0.0f, 1.0f, 0.0f, DT, -25.0f/181.8, 25.0f/181.8, 0.03f);
 
   // Inicializar integradores cinemáticos
   PID_Init(&g_ss_accel_integrator, 0.0f, 1.0f, 0.0f, DT, -0.66f, 0.66f, 0.0f);
@@ -141,9 +141,6 @@ void state_space_reducido_task(void *arg) {
   ss_red_toggle_enable(); // Ciclo para forzar estado inicial limpio
                           // static float pos_control = 0.0f;
   static float vel_control = 0.0f;
-  static float pos_control = 0.0f;
-  static float g_theta_dot = 0.0f;
-
   while (1) {
     vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(SS_LOOP_PERIOD_MS));
 
@@ -153,7 +150,6 @@ void state_space_reducido_task(void *arg) {
     }
 
     // --- PASO 1: LEER SENSORES ---
-    g_theta_dot = (pulse_counter_get_angle_rad() - 3.14159265f - g_theta) / DT;
     g_theta = pulse_counter_get_angle_rad() - 3.14159265f;
     g_x_pos = -pid_get_car_position_m();
     // Estimación numérica de la velocidad del carro (x_dot)
@@ -161,19 +157,22 @@ void state_space_reducido_task(void *arg) {
 
     // --- PASO 2: DINÁMICA DEL ERROR (Integrador) ---
     g_estado_integrador =
-        PID_Compute(&g_ss_integrator, g_ref_posicion, g_x_pos);
+        PID_Compute(&g_ss_integrator, g_ref_posicion, g_x_pos/2.7);
 
     float dynamic_angle_setpoint = g_estado_integrador;
 
     // --- PASO 3: ESTIMACIÓN (Observador Reducido Actual) ---
-    // g_theta_dot_hat = g_Z_estado + (L_obs * g_theta);
-    g_theta_dot_hat = g_theta_dot;
 
-    const LQR_Red_Params *pLQR = (status_get_pendulum_rod() == ROD_LONG) ? &red_params_long : &red_params_short;
+    const LQR_Red_Params *pLQR = (status_get_pendulum_rod() == ROD_LONG)
+                                     ? &red_params_long
+                                     : &red_params_short;
+
+    g_theta_dot_hat = g_Z_estado + (pLQR->L_obs * g_theta);
 
     // --- PASO 4: LEY DE CONTROL (LQI) ---
-    g_u_control = -((pLQR->K_x * g_x_pos) + (pLQR->K_xdot * g_x_dot) + (pLQR->K_theta * g_theta) +
-                    (pLQR->K_w * g_theta_dot_hat) + (pLQR->K_i * dynamic_angle_setpoint));
+    g_u_control = -2.7*((pLQR->K_x * g_x_pos) + (pLQR->K_xdot * g_x_dot) +
+                    (pLQR->K_theta * g_theta) + (pLQR->K_w * g_theta_dot_hat) -
+                    (pLQR->K_i * dynamic_angle_setpoint));
 
     if (g_u_control > 10000.0f)
       g_u_control = 10000.0f;
@@ -184,15 +183,15 @@ void state_space_reducido_task(void *arg) {
     // U es aceleración. Integramos 1 vez para sacar la Velocidad
     vel_control = PID_Compute(&g_ss_accel_integrator, g_u_control, 0.0f);
     // Integramos la velocidad resultante para sacar Posición
-    pos_control = PID_Compute(&g_ss_vel_integrator, vel_control, 0.0f);
-    (void)pos_control; // silence unused variable warning
+    // pos_control = PID_Compute(&g_ss_vel_integrator, vel_control, 0.0f);
+    // S(void)pos_control; // silence unused variable warning
 
     // // --- PASO 6: ¡ACCIONAR MOTOR! ---
     // Puesto que el motor se comanda en Velocidad, enviamos la 1ra integral
     set_motor_velocity(-vel_control);
 
     // // --- PASO 7: PREDECIR SIGUIENTE ESTADO INTERNO ---
-    g_Z_estado =
-        (pLQR->F_obs * g_Z_estado) + (pLQR->G_obs * g_theta) + (pLQR->H_obs * g_u_control);
+    g_Z_estado = (pLQR->F_obs * g_Z_estado) + (pLQR->G_obs * g_theta) +
+                 (pLQR->H_obs * g_u_control);
   }
 }
