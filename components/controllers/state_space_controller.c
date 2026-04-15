@@ -265,11 +265,10 @@ void state_space_controller_task(void *arg) {
     float error_pos = g_ref_posicion - g_x_pos;
     
     // Anti-windup condicional: 
-    // Solo permitimos que el integrador acumule si estamos cerca de la referencia (< 15 cm).
-    // Si el error es grande (ej. al cambiar el setpoint bruscamente), reseteamos el integrador.
-    // Esto evita que se acumule un gran error durante el trayecto, lo que causaría
-    // que el péndulo se descontrole al intentar "des-integrar" al llegar al objetivo.
-    if (fabsf(error_pos) > 0.15f) {
+    // Solo permitimos que el integrador acumule si estamos muy cerca de la referencia (< 5 cm).
+    // Al ser una pista de 54cm, usar 5cm significa que el integrador solo actúa para
+    // el "ajuste fino" final y vencer la fricción, dejando el viaje largo a la ganancia estable K_x.
+    if (fabsf(error_pos) > 0.05f) {
       PID_Reset(&g_ss_integrator);
     }
     
