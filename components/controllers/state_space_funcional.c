@@ -21,7 +21,7 @@ static const char *TAG = "SS_FUNC_CTRL";
 
 #define SS_LOOP_PERIOD_MS 10
 #define DT (SS_LOOP_PERIOD_MS / 1000.0f)
-#define VEL_CMD_LIMIT 0.7f
+#define VEL_CMD_LIMIT 7.5f
 
 // =============================================================================
 // 1. PARÁMETROS DEL OBSERVADOR FUNCIONAL LINEAL (LFO)
@@ -54,10 +54,10 @@ static const FUNC_Params params_long = {
 // Placeholder para vara corta (duplicado temporal)
 static const FUNC_Params params_short = {
     .F_func = 0.5000f,
-    .b = {-4.65f, -3.3092f, -204.2f, 2.98f},
-    .G = {-9.16f, -6.61f, 81.84f, 5.79f},
-    .H_func = 0.45f,
-    .K_i = 1.0f
+    .b = {-6.0932f, -4.4684f, -411.9038f, 3.8184f},
+    .G = {-12.0077f, -8.9368f, 179.6182f, 7.3966f},
+    .H_func = 0.2213f,
+    .K_i = 1.0f // El peso de la integral ya está en b[3] y G[3]
 };
 
 // =============================================================================
@@ -73,11 +73,11 @@ static float g_theta = 0.0f;
 static float g_u_control = 0.0f;
 static float g_estado_integrador = 0.0f;
 static float g_vel_cmd = 0.0f;
-static float g_ref_posicion = 0.18f; // Referencia según código usuario
+static float g_ref_posicion = 0.10f; // Referencia según código usuario
 
 #define LIMITE_INTEGRAL 50.0f
-#define ACEL_MAX 500.0f
-#define VEL_MAX 0.7f
+#define ACEL_MAX 20.0f
+#define VEL_MAX 1.10f
 
 // =============================================================================
 // 3. GESTIÓN DE ESTADO

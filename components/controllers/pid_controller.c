@@ -80,6 +80,9 @@
 #define PULLEY_RADIUS_MM 10.0f     // Radio de la polea en mm
 #define TRANSMISSION_RATIO 1.0f    // Relación de transmisión (correa/polea)
 
+#define MAX_ACCEL 2.0f
+#define MAX_VELOCITY 1.1f
+
 /************************************************************************************
  *                        FIN DE LA CONFIGURACIÓN DE PARÁMETROS     *
  ************************************************************************************/
@@ -114,7 +117,7 @@ static PID_TuningBank bank_long = {
 
 // Placeholder para la vara corta - usa los mismos inicialmente
 static PID_TuningBank bank_short = {
-    .angle_p = -50.0f, .angle_i = -0.0f, .angle_d = -0.03f,
+    .angle_p = -18.0f, .angle_i = -0.0f, .angle_d = -0.03f,
     .pos_p = 0.4f, .pos_i = 0.03f, .pos_d = 0.11f
 };
 
@@ -255,17 +258,17 @@ void pid_controller_task(void *arg) {
   TickType_t last_wake_time = xTaskGetTickCount();
 
   // Inicializar el controlador PID (Salida en aceleración m/s^2)
-  PID_Init(&g_angle_controller, -50.0f, -0.0f, -0.03f, loop_period_in_seconds,
-           -2.0f, 2.0f, DEAD_BAND_ANGLE);
+  PID_Init(&g_angle_controller, -18.0f, -0.0f, -0.02f, loop_period_in_seconds,
+           -MAX_ACCEL, MAX_ACCEL, DEAD_BAND_ANGLE);
 
   // Inicializar el controlador de posición (solo proporcional)
-  PID_Init(&g_position_controller, 0.4f, 0.03f, 0.11f, loop_period_in_seconds,
+  PID_Init(&g_position_controller, 0.4f, 0.03f, 0.15f, loop_period_in_seconds,
            -0.034f, 0.034f, 0.0f);
 
   // Inicializar el integrador de velocidad (solo I, ganancia 1)
   // Convierte la aceleración m/s^2 a velocidad m/s
   PID_Init(&g_velocity_integrator, 0.1f, 0.9f, 0.0f, loop_period_in_seconds,
-           -0.72f, 0.72f, 0.0f);
+           -MAX_VELOCITY, MAX_VELOCITY, 0.0f);
 
   // Reseteamos el error anterior al habilitar para evitar un pico inicial en D
   pid_toggle_enable(); // Habilita y resetea
@@ -301,7 +304,7 @@ void pid_controller_task(void *arg) {
 
     // 1. MEDIR estado actual en radianes y la posicón en metros
 
-    float current_angle_rad = pulse_counter_get_angle_rad();
+    float current_angle_rad = pulse_counter_get_angle_rad() - (float)M_PI;
     float current_position_m = -pid_get_car_position_m();
 
     // --- Lógica de control de posición ---
@@ -315,7 +318,7 @@ void pid_controller_task(void *arg) {
     // Guardar para el LCD
 
     // Calcular el setpoint dinámico (en radianes)
-    float dynamic_angle_setpoint_rad = g_absolute_setpoint + offset_angle_rad;
+    float dynamic_angle_setpoint_rad = offset_angle_rad;
 
     // 2. CALCULAR ERROR de ángulo usando el setpoint dinámico
     // La salida del PID es aceleración, se integra a velocidad

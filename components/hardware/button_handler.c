@@ -432,7 +432,7 @@ void button_handler_start_calibration(void) {
            g_car_position_pulses);
   ESP_LOGI(TAG, "Esperando 5 segundos para estabilizar...");
 
-  vTaskDelay(pdMS_TO_TICKS(5000));
+  vTaskDelay(pdMS_TO_TICKS(500));
 
   // --- AÑADIDO: Cálculo y establecimiento del setpoint vertical ---
   ESP_LOGI(TAG, "Calculando setpoint vertical...");

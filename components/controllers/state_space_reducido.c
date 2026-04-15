@@ -1,7 +1,8 @@
 // components/controllers/state_space_reducido.c
 //
 // Controlador LQI con Observador de Orden Reducido (1er orden).
-// Estima únicamente la velocidad angular (theta_dot) a partir del ángulo (theta).
+// Estima únicamente la velocidad angular (theta_dot) a partir del ángulo
+// (theta).
 //
 
 #include "state_space_reducido.h"
@@ -25,21 +26,23 @@ static const char *TAG = "SS_RED_CTRL";
 #define DT (SS_LOOP_PERIOD_MS / 1000.0f)
 
 // Límite de velocidad del carro (m/s)
-#define VEL_CMD_LIMIT 0.7f
+#define VEL_CMD_LIMIT 1.1f
+#define ACEL_MAX 20.0f
 
 // =============================================================================
 // 1. PARÁMETROS DEL SISTEMA Y OBSERVADOR REDUCIDO
 // =============================================================================
 
 typedef struct {
-  // Coeficientes del Observador Reducido: z[k] = F*z[k-1] + G*u[k-1] + H*theta[k-1]
-  // theta_dot_hat = z + L_obs*theta
+  // Coeficientes del Observador Reducido: z[k] = F*z[k-1] + G*u[k-1] +
+  // H*theta[k-1] theta_dot_hat = z + L_obs*theta
   float F_obs;
   float G_obs;
   float H_obs;
   float L_obs;
-  
-  // Ganancias LQI: u = -(K_x*x + K_xdot*x_dot + K_theta*theta + K_w*theta_dot - K_i*x_i)
+
+  // Ganancias LQI: u = -(K_x*x + K_xdot*x_dot + K_theta*theta + K_w*theta_dot -
+  // K_i*x_i)
   float K_x;
   float K_xdot;
   float K_theta;
@@ -53,28 +56,27 @@ typedef struct {
  * G = Gamma2 - L*Gamma1 = -0.075 - 40*(-0.000375) = -0.06
  * H = F*L + Phi21 - L*Phi11 = -15.6319
  */
-static const RED_Params params_long = {
-    .F_obs = 0.6018f,
-    .H_obs = -0.0600f,
-    .G_obs = -15.6319f,
-    .L_obs = 40.0f,
-    .K_x = -8.3f,
-    .K_xdot = -11.27f,
-    .K_theta = -40.28f,
-    .K_w = -5.6f,
-    .K_i = -6.0f};
+static const RED_Params params_long = {.F_obs = 0.55f,
+                                       .H_obs = -0.0560f,
+                                       .G_obs = -15.6319f,
+                                       .L_obs = 50.0f,
+                                       .K_x = -8.0f,
+                                       .K_xdot = -11.6f,
+                                       .K_theta = -48.7f,
+                                       .K_w = -7.25f,
+                                       .K_i = -6.6f};
 
 // Placeholder: Duplicado para la vara corta (ajustar tras cálculo en MATLAB)
-static const RED_Params params_short = {
-    .F_obs = 0.5000f,
-    .G_obs = -24.387f,
-    .H_obs = -0.17f,
-    .L_obs = 50.43f,
-    .K_x = -13.86f,
-    .K_xdot = -11.04f,
-    .K_theta = -28.86f,
-    .K_w = -4.388f,
-    .K_i = -1.0f};
+static const RED_Params params_short = {.F_obs = 0.6018f,
+                                        .H_obs = -0.0600f,
+                                        .G_obs = -15.6319f,
+                                        .L_obs = 40.0f,
+                                        .K_x = -8.3f,
+                                        .K_xdot = -11.27f,
+                                        .K_theta = -40.28f,
+                                        .K_w = -5.6f,
+                                        .K_i = -6.0f};
+;
 
 // =============================================================================
 // 2. VARIABLES GLOBALES DE ESTADO
@@ -97,7 +99,7 @@ static float g_estado_integrador = 0.0f;
 static float g_u_prev = 0.0f;
 static float g_theta_prev = 0.0f;
 static float g_vel_cmd = 0.0f;
-static float g_ref_posicion = 0.2f;
+static float g_ref_posicion = 0.1f;
 
 static PIDController g_ss_red_integrator;
 
@@ -151,14 +153,16 @@ float ss_red_get_estado_integrador(void) { return g_estado_integrador; }
 // 4. LÓGICA DEL OBSERVADOR REDUCIDO
 // =============================================================================
 
-static void reduced_observer_update(const RED_Params *p, float theta_meas, float u_prev, float theta_prev) {
-    // Predicción del estado interno z
-    // z[k] = F*z[k-1] + G*u[k-1] + H*theta[k-1]
-    g_z_obs = (p->F_obs * g_z_obs) + (p->H_obs * u_prev) + (p->G_obs * theta_prev);
-    
-    // Estimación de la velocidad angular
-    // theta_dot_hat[k] = z[k] + L*theta_meas[k]
-    g_theta_dot_hat = g_z_obs + (p->L_obs * theta_meas);
+static void reduced_observer_update(const RED_Params *p, float theta_meas,
+                                    float u_prev, float theta_prev) {
+  // Predicción del estado interno z
+  // z[k] = F*z[k-1] + G*u[k-1] + H*theta[k-1]
+  g_z_obs =
+      (p->F_obs * g_z_obs) + (p->H_obs * u_prev) + (p->G_obs * theta_prev);
+
+  // Estimación de la velocidad angular
+  // theta_dot_hat[k] = z[k] + L*theta_meas[k]
+  g_theta_dot_hat = g_z_obs + (p->L_obs * theta_meas);
 }
 
 // =============================================================================
@@ -169,9 +173,11 @@ void state_space_reducido_task(void *arg) {
   (void)arg;
   TickType_t last_wake_time = xTaskGetTickCount();
 
-  PID_Init(&g_ss_red_integrator, 0.0f, 1.0f, 0.0f, DT, -1000.0f, 1000.0f, 0.03f);
+  PID_Init(&g_ss_red_integrator, 0.0f, 1.0f, 0.0f, DT, -1000.0f, 1000.0f,
+           0.03f);
 
-  ESP_LOGI(TAG, "Reduced Order Observer SS task ready (1 state estimated, Ts=10ms)");
+  ESP_LOGI(TAG,
+           "Reduced Order Observer SS task ready (1 state estimated, Ts=10ms)");
 
   while (1) {
     vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(SS_LOOP_PERIOD_MS));
@@ -190,26 +196,32 @@ void state_space_reducido_task(void *arg) {
 
     // ── PASO 2: ACTUALIZACIÓN DEL OBSERVADOR REDUCIDO ──────────────────
     reduced_observer_update(p, g_theta, g_u_prev, g_theta_prev);
-    
-    // Para x_dot seguimos usando la velocidad integrada (o medida) como referencia
-    g_x_dot = g_vel_cmd; 
-    
-    g_estado_integrador = PID_Compute(&g_ss_red_integrator, g_ref_posicion, g_x_pos);
+
+    // Para x_dot seguimos usando la velocidad integrada (o medida) como
+    // referencia
+    g_x_dot = g_vel_cmd;
+
+    g_estado_integrador =
+        PID_Compute(&g_ss_red_integrator, g_ref_posicion, g_x_pos);
 
     // ── PASO 3: LEY DE CONTROL LQI ─────────────────────────────────────
     // u = -(K_x·x + K_xdot·ẋ + K_theta·θ + K_w·θ̂̇ - K_i·x_i)
-    g_u_control = -((p->K_x * g_x_pos) + (p->K_xdot * g_x_dot) +
-                    (p->K_theta * g_theta) + (p->K_w * g_theta_dot_hat) -
-                    (p->K_i * g_estado_integrador));
+    g_u_control =
+        -((p->K_x * g_x_pos) + (p->K_xdot * g_x_dot) + (p->K_theta * g_theta) +
+          (p->K_w * g_theta_dot_hat) - (p->K_i * g_estado_integrador));
 
     // Saturación de seguridad
-    if (g_u_control > 10000.0f) g_u_control = 10000.0f;
-    if (g_u_control < -10000.0f) g_u_control = -10000.0f;
+    if (g_u_control > ACEL_MAX)
+      g_u_control = ACEL_MAX;
+    if (g_u_control < -ACEL_MAX)
+      g_u_control = -ACEL_MAX;
 
     // ── PASO 4: INTERGRACIÓN Y ACTUACIÓN ───────────────────────────────
     g_vel_cmd += g_u_control * DT;
-    if (g_vel_cmd > VEL_CMD_LIMIT) g_vel_cmd = VEL_CMD_LIMIT;
-    if (g_vel_cmd < -VEL_CMD_LIMIT) g_vel_cmd = -VEL_CMD_LIMIT;
+    if (g_vel_cmd > VEL_CMD_LIMIT)
+      g_vel_cmd = VEL_CMD_LIMIT;
+    if (g_vel_cmd < -VEL_CMD_LIMIT)
+      g_vel_cmd = -VEL_CMD_LIMIT;
 
     set_motor_velocity(-g_vel_cmd);
 

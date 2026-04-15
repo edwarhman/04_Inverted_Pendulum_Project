@@ -35,7 +35,8 @@ static const char *TAG = "SS_CTRL";
 #define DT (SS_LOOP_PERIOD_MS / 1000.0f)
 
 // Límite de velocidad del carro (m/s) — igual que el integrador previo
-#define VEL_CMD_LIMIT 0.7f
+#define VEL_CMD_LIMIT 1.1f
+#define ACEL_MAX 20.0f
 
 // =============================================================================
 // 1. MATRICES DEL SISTEMA DISCRETO  (calculadas en MATLAB, c2d ZOH, Ts=10 ms)
@@ -63,15 +64,15 @@ static const LQR_Params params_long = {
     .Cd = {{1.0f, 0.0f, 0.0f, 0.0f},
            {0.0f, 1.0f, 0.0f, 0.0f},
            {0.0f, 0.0f, 1.0f, 0.0f}},
-    .L_obs = {{0.5000f, 0.0100f, 0.0000f},
-              {0.0000f, 0.4500f, 0.0000f},
-              {0.0000f, 0.0000f, 1.1537f},
-              {0.0000f, 0.0000f, 33.55973f}},
-    .K_x = -8.3f,
-    .K_xdot = -11.27,
-    .K_theta = -40.28,
-    .K_w = -5.6,
-    .K_i = -6.0f};
+    .L_obs = {{0.3000f, 0.0100f, 0.0000f},
+              {0.0000f, 0.2500f, 0.0000f},
+              {0.0000f, 0.0000f, 0.75f},
+              {0.0000f, 0.0000f, 14.5f}},
+    .K_x = -29.81f,
+    .K_xdot = -21.86,
+    .K_theta = -48.64,
+    .K_w = -7.23,
+    .K_i = -0.0f};
 
 // PLACEHOLDER: Duplicado de la vara larga para la vara corta.
 // Sustituir con valores calculados posteriormente.
@@ -118,7 +119,7 @@ static float g_u_prev = 0.0f;  // u[k-1] usado en la predicción del observador
 static float g_vel_cmd = 0.0f; // velocidad integrada enviada al motor (m/s)
 
 // Referencia de posición (m)
-static float g_ref_posicion = 0.2f;
+static float g_ref_posicion = 0.1f;
 
 // Integrador LQI — 5to estado del sistema aumentado (Ki=1, límites ±2 m·s)
 static PIDController g_ss_integrator;
@@ -271,10 +272,10 @@ void state_space_controller_task(void *arg) {
                     (pLQR->K_i * g_estado_integrador));
 
     // Saturación de seguridad
-    if (g_u_control > 10000.0f)
-      g_u_control = 10000.0f;
-    if (g_u_control < -10000.0f)
-      g_u_control = -10000.0f;
+    if (g_u_control > ACEL_MAX)
+      g_u_control = ACEL_MAX;
+    if (g_u_control < -ACEL_MAX)
+      g_u_control = -ACEL_MAX;
 
     // ── PASO 5: INTEGRAR u → VELOCIDAD PARA EL MOTOR ──────────────────
     // u es una aceleración (m/s²). Integramos para obtener velocidad (m/s).
