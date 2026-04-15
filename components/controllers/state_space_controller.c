@@ -218,8 +218,8 @@ void state_space_controller_task(void *arg) {
   TickType_t last_wake_time = xTaskGetTickCount();
 
   // Integrador LQI: integra el error de posición  x_i[k+1] = x_i[k] + (r-x)·Ts
-  // Kp=0, Ki=1, Kd=0 → salida = Σ(error)·DT, saturada en ±2 m·s
-  PID_Init(&g_ss_integrator, 0.0f, 1.0f, 0.0f, DT, -0.01f, 0.01f, 0.0f);
+  // Kp=0, Ki=1, Kd=0 → salida = Σ(error)·DT, saturada en ±0.25 m·s
+  PID_Init(&g_ss_integrator, 0.0f, 1.0f, 0.0f, DT, -0.25f, 0.25f, 0.0f);
 
   ESP_LOGI(
       TAG,
@@ -262,6 +262,17 @@ void state_space_controller_task(void *arg) {
 
     // ── PASO 3: INTEGRADOR LQI (5to estado del sistema aumentado) ──────
     // x_i[k+1] = x_i[k] + (r - x) * Ts
+    float error_pos = g_ref_posicion - g_x_pos;
+    
+    // Anti-windup condicional: 
+    // Solo permitimos que el integrador acumule si estamos cerca de la referencia (< 15 cm).
+    // Si el error es grande (ej. al cambiar el setpoint bruscamente), reseteamos el integrador.
+    // Esto evita que se acumule un gran error durante el trayecto, lo que causaría
+    // que el péndulo se descontrole al intentar "des-integrar" al llegar al objetivo.
+    if (fabsf(error_pos) > 0.15f) {
+      PID_Reset(&g_ss_integrator);
+    }
+    
     g_estado_integrador =
         PID_Compute(&g_ss_integrator, g_ref_posicion, g_x_pos);
 
