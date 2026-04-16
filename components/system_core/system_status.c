@@ -37,6 +37,7 @@ const char* status_get_control_mode_str(void)
         case MODE_STATE_SPACE: return "IDEN";
         case MODE_STATE_SPACE_RED: return "REDU";
         case MODE_STATE_SPACE_FUNC: return "FUNC";
+        case MODE_SWING_UP: return "SWNG";
         default: return "UKNOWN";
     }
 }

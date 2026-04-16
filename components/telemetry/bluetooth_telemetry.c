@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "esp_spp_api.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -15,14 +16,16 @@
 #include <stdio.h>
 #include <string.h>
 
-
 #include "bluetooth_telemetry.h"
 #include "button_handler.h"
 #include "pid_controller.h"
 #include "pulse_counter.h"
 #include "state_space_controller.h"
+#include "state_space_funcional.h" // AÑADIDO
 #include "state_space_reducido.h"
+#include "swing_up_controller.h" // AÑADIDO
 #include "system_status.h"
+#include "button_handler.h" // AÑADIDO
 
 #define SPP_SERVER_NAME "SPP_SERVER"
 #define CONFIG_BT_DEVICE_NAME "Pendulo_Invertido"
@@ -42,6 +45,20 @@ static void send_bt_response(const char *msg) {
     int len = snprintf(resp, sizeof(resp), "#%s\r\n", msg);
     esp_spp_write(spp_handle, len, (uint8_t *)resp);
   }
+}
+
+// Tarea asíncrona para manejar la calibración sin bloquear el stack de BT
+static void bluetooth_calibration_task(void *pvParameters) {
+  send_bt_response("Iniciando Calibracion...");
+  button_handler_start_calibration();
+  
+  // Esperar a que la máquina de estados termine (vuelve a IDLE)
+  while (button_handler_is_calibrating()) {
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+  
+  send_bt_response("Calibracion Finalizada");
+  vTaskDelete(NULL);
 }
 
 static void process_bt_command(char *line) {
@@ -89,13 +106,22 @@ static void process_bt_command(char *line) {
     snprintf(msg, sizeof(msg), "Setpoint Posicion: %.4f m", v);
     send_bt_response(msg);
   } else if (strcmp(cmd, "SETCONTROL") == 0 && val != NULL) {
-    if (strcasecmp(val, "pid") == 0) control_switch_mode(MODE_PID);
-    else if (strcasecmp(val, "iden") == 0) control_switch_mode(MODE_STATE_SPACE);
-    else if (strcasecmp(val, "redu") == 0) control_switch_mode(MODE_STATE_SPACE_RED);
-    else if (strcasecmp(val, "func") == 0) control_switch_mode(MODE_STATE_SPACE_FUNC);
-    
+    if (strcasecmp(val, "pid") == 0)
+      control_switch_mode(MODE_PID);
+    else if (strcasecmp(val, "iden") == 0)
+      control_switch_mode(MODE_STATE_SPACE);
+    else if (strcasecmp(val, "redu") == 0)
+      control_switch_mode(MODE_STATE_SPACE_RED);
+    else if (strcasecmp(val, "func") == 0)
+      control_switch_mode(MODE_STATE_SPACE_FUNC);
+    else if (strcasecmp(val, "swing") == 0) {
+      status_set_control_mode(MODE_SWING_UP);
+      swing_up_enable();
+    }
+
     char msg[64];
-    snprintf(msg, sizeof(msg), "Modo Control: %s", status_get_control_mode_str());
+    snprintf(msg, sizeof(msg), "Modo Control: %s",
+             status_get_control_mode_str());
     send_bt_response(msg);
   } else if (strcmp(cmd, "ENABLE") == 0) {
     control_toggle_current();
@@ -104,6 +130,10 @@ static void process_bt_command(char *line) {
     snprintf(msg, sizeof(msg), "SISTEMA %s",
              is_en ? "HABILITADO" : "DESHABILITADO");
     send_bt_response(msg);
+  } else if (strcmp(cmd, "SWINGUP") == 0) {
+    status_set_control_mode(MODE_SWING_UP);
+    swing_up_enable();
+    send_bt_response("Rutina Swing-Up INICIADA");
   } else if (strcmp(cmd, "TELE") == 0) {
     telemetry_enabled = !telemetry_enabled;
     char msg[64];
@@ -112,23 +142,24 @@ static void process_bt_command(char *line) {
     send_bt_response(msg);
   } else if (strcmp(cmd, "STATUS") == 0) {
     char msg[160];
-    snprintf(
-        msg, sizeof(msg),
-        "STATUS: Mode=%s, Kp=%.4f, Ki=%.4f, Kd=%.4f, PosSP=%.4f, Enabled=%d, Tele=%d",
-        status_get_control_mode_str(), pid_get_kp(), pid_get_ki(), pid_get_kd(),
-        status_get_ref_position(), is_any_controller_enabled(), telemetry_enabled);
+    snprintf(msg, sizeof(msg),
+             "STATUS: Mode=%s, Kp=%.4f, Ki=%.4f, Kd=%.4f, PosSP=%.4f, "
+             "Enabled=%d, Tele=%d",
+             status_get_control_mode_str(), pid_get_kp(), pid_get_ki(),
+             pid_get_kd(), status_get_ref_position(),
+             is_any_controller_enabled(), telemetry_enabled);
     send_bt_response(msg);
   } else if (strcmp(cmd, "CALIBRATE") == 0) {
-    if (pid_is_enabled()) {
-      send_bt_response("ERROR: Deshabilite PID antes de calibrar");
+    if (pid_is_enabled() || button_handler_is_calibrating()) {
+      send_bt_response("Error: Sistema activo o ya calibrando");
     } else {
-      send_bt_response("Iniciando Calibracion...");
-      button_handler_start_calibration();
-      send_bt_response("Calibracion Finalizada");
+      // Lanzamos la calibración en una tarea separada para no bloquear SPP
+      xTaskCreate(bluetooth_calibration_task, "bt_calib_task", 4096, NULL, 5, NULL);
     }
   } else if (strcmp(cmd, "HELP") == 0) {
-    send_bt_response("Comandos: ENABLE, TELE, STATUS, CALIBRATE, SETK[P,I,D] "
-                     "<val>, SETPOS <m>, SETCONTROL <pid|iden|redu|func>");
+    send_bt_response(
+        "Comandos: ENABLE, SWINGUP, TELE, STATUS, CALIBRATE, SETK[P,I,D] "
+        "<val>, SETPOS <m>, SETCONTROL <pid|iden|redu|func|swing>");
   } else {
     char msg[64];
     snprintf(msg, sizeof(msg), "Comando desconocido: %s", cmd);
@@ -200,48 +231,58 @@ static void bluetooth_telemetry_task(void *arg) {
   char packet[128];
   while (1) {
     if (spp_connected) {
-      uint64_t time_ms = pid_get_run_time_ms();
-      float pos_m = pid_get_car_position_m();
-      float angle_rad = pulse_counter_get_angle_rad();
-
       if (telemetry_enabled) {
+        uint64_t time_ms = pid_get_run_time_ms();
         if (ss_is_enabled()) {
-          // tiempo_ms, angulo, posicion, accion_control, velocidad, velocidad_angular
+          // tiempo_ms, angulo, posicion, accion_control, velocidad,
+          // velocidad_angular
           float theta = ss_get_theta();
           float x_pos = ss_get_x_pos();
           float u_ctrl = ss_get_u_control(); // Control Action
           float x_dot = ss_get_x_dot();
           float theta_dot = ss_get_theta_dot_hat();
-          
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot);
+
+          int len = snprintf(packet, sizeof(packet),
+                             "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n", time_ms,
+                             theta, x_pos, u_ctrl, x_dot, theta_dot);
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }
         } else if (ss_red_is_enabled()) {
-          // tiempo_ms, angulo, posicion, accion_control, velocidad, velocidad_angular
+          // tiempo_ms, angulo, posicion, accion_control, velocidad,
+          // velocidad_angular
           float theta = ss_red_get_theta();
           float x_pos = ss_red_get_x_pos();
           float u_ctrl = ss_red_get_u_control(); // Control Action
           float x_dot = ss_red_get_x_dot();
           float theta_dot = ss_red_get_theta_dot_hat();
-          
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot);
+
+          int len = snprintf(packet, sizeof(packet),
+                             "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n", time_ms,
+                             theta, x_pos, u_ctrl, x_dot, theta_dot);
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }
         } else {
-          // tiempo_ms, angulo, posicion, accion_control, velocidad, velocidad_angular
-          // tiempo_ms, angulo, posicion, accion_control(acel), velocidad_carro, velocidad_angular
-          float theta     = pulse_counter_get_angle_rad();
-          float x_pos     = pid_get_car_position_m();
-          float u_ctrl    = pid_get_acceleration();      // salida del PID de ángulo (m/s²)
-          float vel       = pid_get_velocity();           // velocidad del carro (m/s)
-          float theta_dot = pid_get_angular_velocity();  // velocidad angular (rad/s)
+          // tiempo_ms, angulo, posicion, accion_control, velocidad,
+          // velocidad_angular tiempo_ms, angulo, posicion,
+          // accion_control(acel), velocidad_carro, velocidad_angular
+          float theta = pulse_counter_get_angle_rad();
+          float x_pos = pid_get_car_position_m();
+          float u_ctrl =
+              pid_get_acceleration();     // salida del PID de ángulo (m/s²)
+          float vel = pid_get_velocity(); // velocidad del carro (m/s)
+          float theta_dot =
+              pid_get_angular_velocity(); // velocidad angular (rad/s)
 
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, vel, theta_dot);
+          if (swing_up_is_active()) {
+            // Personalizar telemetría para swing-up si es necesario
+            // Por ahora usamos la misma estructura
+          }
+
+          int len = snprintf(packet, sizeof(packet),
+                             "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n", time_ms,
+                             theta, x_pos, u_ctrl, vel, theta_dot);
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }
@@ -311,8 +352,8 @@ void bluetooth_telemetry_init(void) {
   }
 
   // Tarea con poco tamaño de stack necesario
-  xTaskCreate(bluetooth_telemetry_task, "bt_telemetry_task", 4096, NULL, 3,
-              NULL);
+  xTaskCreatePinnedToCore(bluetooth_telemetry_task, "bt_telemetry_task", 4096,
+                          NULL, 3, NULL, 1);
 
   ESP_LOGI(TAG, "Bluetooth Inicializado exitosamente.");
 }

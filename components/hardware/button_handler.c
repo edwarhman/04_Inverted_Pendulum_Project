@@ -13,7 +13,9 @@
 #include "state_space_controller.h" // AÑADIDO: LQR state space
 #include "state_space_reducido.h" // AÑADIDO: LQR Reducido
 #include "state_space_funcional.h" // AÑADIDO: LQR Funcional
+#include "swing_up_controller.h" // AÑADIDO: Swing-Up
 #include <stdio.h>
+#include <math.h>
 
 // --- PINES DE LOS BOTONES ---
 #define VIEW_CYCLE_BUTTON_GPIO GPIO_NUM_19 // ¡NUEVO BOTÓN!
@@ -51,14 +53,29 @@ manual (alta) #define MANUAL_MOVE_PULSES   400   // Cantidad de pulsos por ciclo
 #define PID_PRESS_DURATION_MAX                                                 \
   30 // Duración máxima de verificación (30 * 10ms = 300ms)
 
+typedef enum {
+    CALIB_IDLE,
+    CALIB_MOVING_RIGHT,
+    CALIB_MOVING_LEFT,
+    CALIB_MOVING_CENTER,
+    CALIB_STABILIZING,
+    CALIB_FINALIZING
+} calib_state_t;
+
+static volatile calib_state_t g_calib_state = CALIB_IDLE;
+static int32_t g_limit_left_pos = 0;
+static int32_t g_limit_right_pos = 0;
+static int64_t g_calib_timer = 0;
+static int g_actual_view_int = 0;
+
 static const char *TAG = "BUTTON_HANDLER";
 // Para saber si el PID está activo, llamaremos a una función.
 // extern bool g_pid_enabled;
 
 // --- Contador de posición del carro en micropasos ---
 // static int32_t g_car_position_pulses = 0;
-
-static int32_t g_calibrated_travel_range_pulses = 0; // Guardar el rango de recorrido calibrado
+// static volatile bool g_is_calibrating = false; // Ya no lo usamos así
+static int32_t g_calibrated_travel_range_pulses = 0;
 
 // Función auxiliar para botones de comando (pulsar y soltar)
 static bool is_command_button_pressed(int gpio_num) {
@@ -113,6 +130,10 @@ void button_handler_task(void *arg) {
       }
     }
     last_view_button_state = current_view_button_state;
+    // --- ACTUALIZACIÓN DE CALIBRACIÓN (Máquina de Estados) ---
+    void button_handler_update_calibration(void);
+    button_handler_update_calibration();
+
     // --- AÑADIDO: Lógica para la Parada de Emergencia (máxima prioridad) ---
     int current_stop_button_state_right = gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT);
     if (last_stop_button_state_right == 1 && current_stop_button_state_right == 0) {
@@ -123,6 +144,7 @@ void button_handler_task(void *arg) {
         ss_force_disable(); // Detener ambos siempre
         ss_red_force_disable();
         ss_func_force_disable();
+        swing_up_force_disable();
 
         // Re-homing dinámico: Si conocemos el centro, recalibramos en el límite negativo (-travel_range/2)
         if (g_calibrated_travel_range_pulses > 0) {
@@ -144,6 +166,7 @@ void button_handler_task(void *arg) {
         ss_force_disable(); // Detener ambos
         ss_red_force_disable();
         ss_func_force_disable();
+        swing_up_force_disable();
 
         // Re-homing dinámico: Si conocemos el centro, recalibramos en el límite positivo (+travel_range/2)
         if (g_calibrated_travel_range_pulses > 0) {
@@ -169,7 +192,7 @@ void button_handler_task(void *arg) {
     last_button_state = current_button_state;
 
     // Solo permitimos el movimiento manual si NO estamos en vista de sintonización o selección de modo, y el control está apagado
-    if (!pid_is_enabled() && !ss_is_enabled() && !ss_red_is_enabled() && status_get_lcd_view() != VIEW_PID_GAINS && status_get_lcd_view() != VIEW_CONTROL_MODE && status_get_lcd_view() != VIEW_ROD_SELECTION) {
+    if (!pid_is_enabled() && !ss_is_enabled() && !ss_red_is_enabled() && !ss_func_is_enabled() && !swing_up_is_active() && status_get_lcd_view() != VIEW_PID_GAINS && status_get_lcd_view() != VIEW_CONTROL_MODE && status_get_lcd_view() != VIEW_ROD_SELECTION) {
 
       // --- LÓGICA DE CALIBRACIÓN (HOMING) ---
       if (is_command_button_pressed(CALIBRATION_BUTTON_GPIO)) {
@@ -328,12 +351,12 @@ void button_handler_task(void *arg) {
 
         if (right_button_state == 0 && left_button_state == 1) {
           int next_mode = (int)status_get_control_mode() + 1;
-          if (next_mode > 3) next_mode = 0;
+          if (next_mode > 3) next_mode = 0; // Skip MODE_SWING_UP (4)
           control_switch_mode((control_mode_t)next_mode);
           vTaskDelay(pdMS_TO_TICKS(150));
         } else if (left_button_state == 0 && right_button_state == 1) {
           int prev_mode = (int)status_get_control_mode() - 1;
-          if (prev_mode < 0) prev_mode = 3;
+          if (prev_mode < 0) prev_mode = 3; // Skip MODE_SWING_UP
           control_switch_mode((control_mode_t)prev_mode);
           vTaskDelay(pdMS_TO_TICKS(150));
         }
@@ -350,96 +373,111 @@ void button_handler_task(void *arg) {
       }
     }
 
+    button_handler_update_calibration();
+
     vTaskDelay(pdMS_TO_TICKS(20)); // Sondeo mayor o igual a 10ms 10ms
   }
 }
 
+void button_handler_update_calibration(void) {
+  if (g_calib_state == CALIB_IDLE) return;
+
+  // Si estamos en cualquier estado de movimiento, verificamos paradas de emergencia extras
+  // pero ya se manejan en el loop principal. Solo nos enfocamos en la lógica de calib.
+
+  switch (g_calib_state) {
+    case CALIB_MOVING_RIGHT:
+      if (gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT) == 1) {
+        set_motor_velocity(-0.25f); // Move Izquierda (Dir 0) en la convención de pwm_gen? 
+        // Espera, en execute_movement(..., 0) es Izquierda.
+        // set_motor_velocity(v) -> target_freq = meters_to_pulses(v).
+        // Si v = -0.25, target_freq es negativo.
+        // set_motor_velocity(-v) hace que si v es pos el motor va a la izq?
+        // Revisemos pwm_generator.c: 473: int direction = (velocity_ms > 0) ? 1 : 0;
+        // Si velocity_ms > 0 -> Dir 1 (Derecha). Si < 0 -> Dir 0 (Izquierda).
+        // En execute_movement(..., 0) era Izquierda. OK.
+      } else {
+        set_motor_velocity(0.0f);
+        g_limit_left_pos = g_car_position_pulses;
+        ESP_LOGW(TAG, "Límite derecho detectado en: %ld pulsos", g_limit_left_pos);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        g_calib_state = CALIB_MOVING_LEFT;
+      }
+      break;
+
+    case CALIB_MOVING_LEFT:
+      if (gpio_get_level(EMERGENCY_STOP_GPIO_LEFT) == 1) {
+        set_motor_velocity(0.25f); // Move Derecha (Dir 1)
+      } else {
+        set_motor_velocity(0.0f);
+        g_limit_right_pos = g_car_position_pulses;
+        ESP_LOGW(TAG, "Límite izquierdo detectado en: %ld pulsos", g_limit_right_pos);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        g_calib_state = CALIB_MOVING_CENTER;
+      }
+      break;
+
+    case CALIB_MOVING_CENTER: {
+      int32_t travel_range = abs(g_limit_right_pos - g_limit_left_pos);
+      g_calibrated_travel_range_pulses = travel_range;
+      int32_t center_pos = g_limit_left_pos + (travel_range / 2);
+      
+      float diff = center_pos - g_car_position_pulses;
+      if (fabsf(diff) > 200.0f) {
+        float speed = (diff > 0) ? 0.25f : -0.25f;
+        set_motor_velocity(speed);
+      } else {
+        set_motor_velocity(0.0f);
+        g_car_position_pulses = 0;
+        ESP_LOGW(TAG, "Centro alcanzado. Estabilizando...");
+        g_calib_timer = esp_timer_get_time();
+        g_calib_state = CALIB_STABILIZING;
+      }
+      break;
+    }
+
+    case CALIB_STABILIZING:
+      if (esp_timer_get_time() - g_calib_timer > 500000) { // 500ms
+        g_calib_state = CALIB_FINALIZING;
+      }
+      break;
+
+    case CALIB_FINALIZING: {
+      ESP_LOGI(TAG, "Calculando setpoint vertical...");
+      int16_t fallen_pos = pulse_counter_get_value();
+      int32_t vertical_setpoint_32 = fallen_pos + (ENCODER_RESOLUTION / 2);
+      float vertical_setpoint_rad = ((float)vertical_setpoint_32 / ENCODER_RESOLUTION) * 2.0f * 3.14159265f;
+      pid_set_absolute_setpoint_rad(vertical_setpoint_rad);
+      ESP_LOGW(TAG, "Setpoint vertical pre-calculado: %.3f rad.", vertical_setpoint_rad);
+      
+      g_lcd_view_state = (lcd_view_state_t)g_actual_view_int;
+      g_calib_state = CALIB_IDLE;
+      break;
+    }
+
+    default: g_calib_state = CALIB_IDLE; break;
+  }
+}
+
 void button_handler_start_calibration(void) {
-  if (pid_is_enabled() || ss_is_enabled() || ss_red_is_enabled() || ss_func_is_enabled()) {
-    ESP_LOGE(TAG, "No se puede calibrar con el control habilitado.");
+  if (is_any_controller_enabled() || g_calib_state != CALIB_IDLE) {
+    ESP_LOGE(TAG, "No se puede calibrar ahora.");
     return;
   }
 
-  ESP_LOGW(TAG, "--- INICIANDO RUTINA DE CALIBRACIÓN DE LÍMITES ---");
-
-  // guardamos vista actual
-  int actual_view_int = (int)status_get_lcd_view();
+  g_actual_view_int = (int)status_get_lcd_view();
   g_lcd_view_state = VIEW_CALIBRATION;
-
-  int32_t limit_left_pos, limit_right_pos;
   g_car_position_pulses = 0;
+  g_calib_state = CALIB_MOVING_RIGHT;
+  ESP_LOGW(TAG, "--- INICIANDO CALIBRACIÓN (ASYNC) ---");
+}
 
-  // 1. Mover a la izquierda hasta que el final de carrera se active
-  ESP_LOGI(TAG, "Buscando límite derecho (GPIO %d)...",
-           EMERGENCY_STOP_GPIO_RIGHT);
-  // Leemos el estado del pin directamente. El bucle continúa MIENTRAS
-  // el botón NO esté presionado.
-  while (gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT) == 1) {
-    int pulses_moved = execute_movement(JOG_PULSES, CALIBRATION_SPEED_HZ,
-                                        0); // Dir 0 = Izquierda
-    g_car_position_pulses -= pulses_moved;
-  }
-  // --- El bucle se rompe en cuanto el pin se va a BAJO ---
-  limit_left_pos = g_car_position_pulses;
-  ESP_LOGW(TAG, "Límite derecho detectado en: %ld pulsos", limit_left_pos);
-  vTaskDelay(pdMS_TO_TICKS(200)); // Pausa para estabilizar
-
-  // 2. Mover a la derecha hasta que el final de carrera se active
-  ESP_LOGI(TAG, "Buscando límite izquierdo...");
-  while (gpio_get_level(EMERGENCY_STOP_GPIO_LEFT) == 1) {
-    int pulses_moved = execute_movement(JOG_PULSES, CALIBRATION_SPEED_HZ,
-                                        1); // Dir 1 = Derecha
-    g_car_position_pulses += pulses_moved;
-  }
-  limit_right_pos = g_car_position_pulses;
-  ESP_LOGW(TAG, "Límite izquierdo detectado en: %ld pulsos", limit_right_pos);
-  vTaskDelay(pdMS_TO_TICKS(200));
-
-  // 3. Calcular el centro y mover el carro
-  int32_t travel_range = abs(limit_right_pos - limit_left_pos);
-  g_calibrated_travel_range_pulses = travel_range; // GUARDAMOS EL RANGO
-  int32_t center_pos = limit_left_pos + (travel_range / 2);
-  ESP_LOGW(TAG, "Recorrido: %ld pulsos. Centro: %ld", travel_range, center_pos);
-
-  ESP_LOGI(TAG, "Moviendo al centro...");
-
-  int32_t pulses_to_center = abs(center_pos - g_car_position_pulses);
-  int direction_to_center = (center_pos > g_car_position_pulses) ? 1 : 0;
-  execute_movement(pulses_to_center, JOG_SPEED_HZ, direction_to_center);
-  g_car_position_pulses = 0;
-
-  ESP_LOGW(TAG, "--- CALIBRACIÓN FINALIZADA. Posición: %ld ---",
-           g_car_position_pulses);
-  ESP_LOGI(TAG, "Esperando 5 segundos para estabilizar...");
-
-  vTaskDelay(pdMS_TO_TICKS(500));
-
-  // --- AÑADIDO: Cálculo y establecimiento del setpoint vertical ---
-  ESP_LOGI(TAG, "Calculando setpoint vertical...");
-
-  // 1. Leer la posición del encoder con el péndulo caído y centrado.
-  int16_t fallen_pos = pulse_counter_get_value();
-  ESP_LOGI(TAG, "Posición 'caída' detectada: %d", fallen_pos);
-
-  // 2. Calcular la posición vertical (180 grados de diferencia).
-  int32_t vertical_setpoint_32 = fallen_pos + (ENCODER_RESOLUTION / 2);
-  float vertical_setpoint_rad =
-      ((float)vertical_setpoint_32 / ENCODER_RESOLUTION) * 2.0f * 3.14159265f;
-
-  // 3. Establecer el setpoint calculado en radianes.
-  pid_set_absolute_setpoint_rad(vertical_setpoint_rad);
-
-  ESP_LOGW(TAG,
-           "Setpoint vertical pre-calculado: %.3f rad. El sistema está listo.",
-           vertical_setpoint_rad);
-  ESP_LOGW(TAG, "Levante el péndulo y presione el botón de habilitar PID.");
-
-  // devolvemos a la vista actual antes de la calibracion
-  g_lcd_view_state = (lcd_view_state_t)actual_view_int;
+bool button_handler_is_calibrating(void) {
+    return g_calib_state != CALIB_IDLE;
 }
 
 bool is_any_controller_enabled(void) {
-    return pid_is_enabled() || ss_is_enabled() || ss_red_is_enabled() || ss_func_is_enabled();
+    return pid_is_enabled() || ss_is_enabled() || ss_red_is_enabled() || ss_func_is_enabled() || swing_up_is_active();
 }
 
 void control_disable_all(void) {
@@ -447,6 +485,7 @@ void control_disable_all(void) {
     ss_disable();
     ss_red_disable();
     ss_func_disable();
+    swing_up_disable();
 }
 
 void control_switch_mode(control_mode_t new_mode) {
@@ -464,20 +503,39 @@ void control_switch_mode(control_mode_t new_mode) {
             case MODE_STATE_SPACE: ss_enable(); break;
             case MODE_STATE_SPACE_RED: ss_red_enable(); break;
             case MODE_STATE_SPACE_FUNC: ss_func_enable(); break;
+            case MODE_SWING_UP: swing_up_enable(); break;
         }
     }
 }
 
 void control_toggle_current(void) {
-    control_mode_t mode = status_get_control_mode();
     if (is_any_controller_enabled()) {
         control_disable_all();
+        ESP_LOGW("CONTROL", "Sistema DESHABILITADO");
     } else {
-        switch (mode) {
-            case MODE_PID: pid_enable(); break;
-            case MODE_STATE_SPACE: ss_enable(); break;
-            case MODE_STATE_SPACE_RED: ss_red_enable(); break;
-            case MODE_STATE_SPACE_FUNC: ss_func_enable(); break;
+        // Lógica inteligente: ¿Péndulo arriba o abajo?
+        float angle = pulse_counter_get_angle_rad();
+        float error = angle - (float)M_PI;
+        // Normalización a [-PI, PI]
+        while (error > (float)M_PI) error -= 2.0f * (float)M_PI;
+        while (error < -(float)M_PI) error += 2.0f * (float)M_PI;
+
+        // Umbral de 30 grados para considerar que "está arriba"
+        const float threshold_rad = 30.0f * (float)M_PI / 180.0f;
+
+        if (fabsf(error) < threshold_rad) {
+            control_mode_t mode = status_get_control_mode();
+            ESP_LOGW("CONTROL", "Péndulo detectado ARRIBA. Habilitando modo: %s", status_get_control_mode_str());
+            switch (mode) {
+                case MODE_PID: pid_enable(); break;
+                case MODE_STATE_SPACE: ss_enable(); break;
+                case MODE_STATE_SPACE_RED: ss_red_enable(); break;
+                case MODE_STATE_SPACE_FUNC: ss_func_enable(); break;
+                case MODE_SWING_UP: swing_up_enable(); break;
+            }
+        } else {
+            ESP_LOGW("CONTROL", "Péndulo detectado ABAJO. Iniciando SWING-UP...");
+            swing_up_enable();
         }
     }
 }

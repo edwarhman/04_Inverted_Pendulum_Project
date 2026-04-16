@@ -17,6 +17,7 @@ void button_handler_task(void *arg);
  * Puede ser llamada desde la tarea de botones o desde comandos externos (Bluetooth/UART).
  */
 void button_handler_start_calibration(void);
+bool button_handler_is_calibrating(void);
 
 #include "system_status.h"
 bool is_any_controller_enabled(void);

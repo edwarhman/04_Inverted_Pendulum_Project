@@ -17,6 +17,7 @@
 #include "state_space_controller.h"
 #include "state_space_reducido.h"
 #include "state_space_funcional.h"
+#include "swing_up_controller.h" // AÑADIDO
 #include "system_status.h"
 
 
@@ -79,9 +80,9 @@ void app_main(void) {
   // Inicializar telemetría Simulink (UART0, 115200 baud, 6 variables TX, 0 RX)
   // NOTA: Los logs de ESP_LOG están desactivados para mantener el stream
   // binario limpio.
-  simulink_comms_init(UART_NUM_0, 115200, 6, 0);
-  simulink_comms_start_tasks(3, tskNO_AFFINITY,
-                             10); // Prioridad 3, 10ms por paquete (100 Hz)
+  // simulink_comms_init(UART_NUM_0, 115200, 6, 0);
+  // simulink_comms_start_tasks(3, tskNO_AFFINITY,
+  //                            10); // Prioridad 3, 10ms por paquete (100 Hz)
 
   // Tarea que inicializa el PCNT y reporta la posición del encoder para
   // depuración xTaskCreate(pulse_counter_task, "pulse_counter_task",
@@ -90,6 +91,10 @@ void app_main(void) {
   // Tarea que monitorea el botón BOOT y envía comandos de "repetir"
   xTaskCreate(button_handler_task, "button_handler_task",
               configMINIMAL_STACK_SIZE * 3, NULL, 4, NULL);
+
+  // TAREA DEL SWING-UP (Prioridad alta para control en tiempo real)
+  xTaskCreate(swing_up_task, "SwingUp_Controller",
+              configMINIMAL_STACK_SIZE * 4, NULL, 5, NULL);
 
   // TAREA DE LA PANTALLA (Prioridad baja, no es crítica)
   xTaskCreate(lcd_display_task, "LCDDisplay", 3072, NULL, 3, NULL);
