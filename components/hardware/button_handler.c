@@ -13,6 +13,7 @@
 #include "state_space_controller.h" // AÑADIDO: LQR state space
 #include "state_space_reducido.h" // AÑADIDO: LQR Reducido
 #include "state_space_funcional.h" // AÑADIDO: LQR Funcional
+#include "test_routine.h"
 #include <stdio.h>
 
 // --- PINES DE LOS BOTONES ---
@@ -346,6 +347,15 @@ void button_handler_task(void *arg) {
           if (act == ROD_LONG) status_set_pendulum_rod(ROD_SHORT);
           else status_set_pendulum_rod(ROD_LONG);
           vTaskDelay(pdMS_TO_TICKS(150));
+        }
+      } else {
+        // En cualquier otra vista donde no se estén configurando cosas,
+        // si el control está activado, el botón de calibración lanza la rutina de pruebas.
+        if (is_any_controller_enabled()) {
+            if (is_command_button_pressed(CALIBRATION_BUTTON_GPIO)) {
+                ESP_LOGI(TAG, "Botón de Calibración: Lanzando Test Routine.");
+                test_routine_start();
+            }
         }
       }
     }
