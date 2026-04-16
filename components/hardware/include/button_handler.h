@@ -1,6 +1,7 @@
-// src/button_handler.h
 #ifndef BUTTON_HANDLER_H
 #define BUTTON_HANDLER_H
+
+#include <stdbool.h>
 
 /**
  * @brief Tarea que inicializa y monitorea el botón BOOT (GPIO 0).
@@ -16,5 +17,10 @@ void button_handler_task(void *arg);
  * Puede ser llamada desde la tarea de botones o desde comandos externos (Bluetooth/UART).
  */
 void button_handler_start_calibration(void);
+
+#include "system_status.h"
+bool is_any_controller_enabled(void);
+void control_switch_mode(control_mode_t new_mode);
+void control_toggle_current(void);
 
 #endif // BUTTON_HANDLER_H

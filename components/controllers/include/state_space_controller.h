@@ -9,6 +9,8 @@ void SS_UpdateReference(float x_ref, float theta_ref);
 
 void state_space_controller_task(void *arg);
 void ss_toggle_enable(void);
+void ss_enable(void);
+void ss_disable(void);
 void ss_force_disable(void);
 bool ss_is_enabled(void);
 

@@ -8,6 +8,8 @@ void SS_FUNC_Reset(void);
 void SS_FUNC_UpdateReference(float x_ref, float theta_ref);
 
 void ss_func_toggle_enable(void);
+void ss_func_enable(void);
+void ss_func_disable(void);
 void ss_func_force_disable(void);
 bool ss_func_is_enabled(void);
 

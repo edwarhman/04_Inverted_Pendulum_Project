@@ -56,15 +56,15 @@ typedef struct {
  * G = Gamma2 - L*Gamma1 = -0.075 - 40*(-0.000375) = -0.06
  * H = F*L + Phi21 - L*Phi11 = -15.6319
  */
-static const RED_Params params_long = {.F_obs = 0.55f,
-                                       .H_obs = -0.0560f,
-                                       .G_obs = -15.6319f,
-                                       .L_obs = 50.0f,
-                                       .K_x = -8.0f,
-                                       .K_xdot = -11.6f,
-                                       .K_theta = -48.7f,
-                                       .K_w = -7.25f,
-                                       .K_i = -6.6f};
+static const RED_Params params_long = {.F_obs = 0.5f,
+                                       .H_obs = -0.04f,
+                                       .G_obs = -23.7f,
+                                       .L_obs = 50.20f,
+                                       .K_x = -14.0f,
+                                       .K_xdot = -8.4f,
+                                       .K_theta = -88.7f,
+                                       .K_w = -7.29f,
+                                       .K_i = -8.0f};
 
 // Placeholder: Duplicado para la vara corta (ajustar tras cálculo en MATLAB)
 static const RED_Params params_short = {.F_obs = 0.6018f,
@@ -99,7 +99,6 @@ static float g_estado_integrador = 0.0f;
 static float g_u_prev = 0.0f;
 static float g_theta_prev = 0.0f;
 static float g_vel_cmd = 0.0f;
-static float g_ref_posicion = 0.1f;
 
 static PIDController g_ss_red_integrator;
 
@@ -118,17 +117,30 @@ void SS_RED_Reset(void) {
 
 void SS_RED_UpdateReference(float x_ref, float theta_ref) {
   (void)theta_ref;
-  g_ref_posicion = x_ref;
+  status_set_ref_position(x_ref);
+}
+
+void ss_red_enable(void) {
+  if (!g_ss_red_enabled) {
+    g_ss_red_enabled = true;
+    SS_RED_Reset();
+    ESP_LOGW(TAG, "State Space REDUCED ENABLED");
+  }
+}
+
+void ss_red_disable(void) {
+  if (g_ss_red_enabled) {
+    g_ss_red_enabled = false;
+    set_motor_velocity(0.0f);
+    ESP_LOGW(TAG, "State Space REDUCED DISABLED");
+  }
 }
 
 void ss_red_toggle_enable(void) {
-  g_ss_red_enabled = !g_ss_red_enabled;
   if (g_ss_red_enabled) {
-    SS_RED_Reset();
-    ESP_LOGW(TAG, "State Space REDUCED ENABLED");
+    ss_red_disable();
   } else {
-    set_motor_velocity(0.0f);
-    ESP_LOGW(TAG, "State Space REDUCED DISABLED");
+    ss_red_enable();
   }
 }
 
@@ -202,7 +214,7 @@ void state_space_reducido_task(void *arg) {
     g_x_dot = g_vel_cmd;
 
     g_estado_integrador =
-        PID_Compute(&g_ss_red_integrator, g_ref_posicion, g_x_pos);
+        PID_Compute(&g_ss_red_integrator, status_get_ref_position(), g_x_pos);
 
     // ── PASO 3: LEY DE CONTROL LQI ─────────────────────────────────────
     // u = -(K_x·x + K_xdot·ẋ + K_theta·θ + K_w·θ̂̇ - K_i·x_i)

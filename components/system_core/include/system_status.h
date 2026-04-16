@@ -54,6 +54,7 @@ typedef enum
 
 void status_set_control_mode(control_mode_t mode);
 control_mode_t status_get_control_mode(void);
+const char* status_get_control_mode_str(void);
 
 // --- AÑADIDO: ESTADO DE LA BARRA DEL PÉNDULO ---
 typedef enum
@@ -101,5 +102,15 @@ void status_cycle_lcd_view(void);
  * @return La vista que debe ser mostrada.
  */
 lcd_view_state_t status_get_lcd_view(void);
+
+/**
+ * @brief Obtiene la posición de referencia compartida (en metros).
+ */
+float status_get_ref_position(void);
+
+/**
+ * @brief Establece la posición de referencia compartida (en metros).
+ */
+void status_set_ref_position(float ref);
 
 #endif // SYSTEM_STATUS_H
