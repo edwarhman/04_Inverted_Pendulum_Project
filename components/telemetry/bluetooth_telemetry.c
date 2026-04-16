@@ -213,8 +213,8 @@ static void bluetooth_telemetry_task(void *arg) {
           float x_dot = ss_get_x_dot();
           float theta_dot = ss_get_theta_dot_hat();
           
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot);
+          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
+                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot, status_get_ref_position());
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }
@@ -226,8 +226,8 @@ static void bluetooth_telemetry_task(void *arg) {
           float x_dot = ss_red_get_x_dot();
           float theta_dot = ss_red_get_theta_dot_hat();
           
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot);
+          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
+                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot, status_get_ref_position());
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }
@@ -240,8 +240,8 @@ static void bluetooth_telemetry_task(void *arg) {
           float vel       = pid_get_velocity();           // velocidad del carro (m/s)
           float theta_dot = pid_get_angular_velocity();  // velocidad angular (rad/s)
 
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, vel, theta_dot);
+          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
+                             time_ms, theta, x_pos, u_ctrl, vel, theta_dot, status_get_ref_position());
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }
