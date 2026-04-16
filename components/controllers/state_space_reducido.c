@@ -57,26 +57,25 @@ typedef struct {
  * H = F*L + Phi21 - L*Phi11 = -15.6319
  */
 static const RED_Params params_short = {.F_obs = 0.5f,
-                                       .H_obs = -0.04f,
-                                       .G_obs = -23.7f,
-                                       .L_obs = 50.20f,
-                                       .K_x = -29.812f,
-                                       .K_xdot = -21.86f,
-                                       .K_theta = -48.64f,
-                                       .K_w = -7.23f,
-                                       .K_i = -18.60f};
+                                        .H_obs = -0.04f,
+                                        .G_obs = -23.7f,
+                                        .L_obs = 50.20f,
+                                        .K_x = -29.812f,
+                                        .K_xdot = -21.86f,
+                                        .K_theta = -48.64f,
+                                        .K_w = -7.23f,
+                                        .K_i = -18.60f};
 
 // Placeholder: Duplicado para la vara corta (ajustar tras cálculo en MATLAB)
 static const RED_Params params_long = {.F_obs = 0.6018f,
-                                        .H_obs = -0.0600f,
-                                        .G_obs = -15.6319f,
-                                        .L_obs = 40.0f,
-                                        .K_x = -8.3f,
-                                        .K_xdot = -11.27f,
-                                        .K_theta = -40.28f,
-                                        .K_w = -5.6f,
-                                        .K_i = -6.0f};
-;
+                                       .H_obs = -0.0600f,
+                                       .G_obs = -15.6319f,
+                                       .L_obs = 40.0f,
+                                       .K_x = -19.38f,
+                                       .K_xdot = -14.1,
+                                       .K_theta = -64.9,
+                                       .K_w = -8.0f,
+                                       .K_i = -12.00f};
 
 // =============================================================================
 // 2. VARIABLES GLOBALES DE ESTADO
