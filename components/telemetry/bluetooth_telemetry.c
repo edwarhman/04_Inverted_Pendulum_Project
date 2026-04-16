@@ -22,6 +22,7 @@
 #include "pulse_counter.h"
 #include "state_space_controller.h"
 #include "state_space_reducido.h"
+#include "system_status.h"
 
 #define SPP_SERVER_NAME "SPP_SERVER"
 #define CONFIG_BT_DEVICE_NAME "Pendulo_Invertido"
@@ -83,15 +84,24 @@ static void process_bt_command(char *line) {
     send_bt_response(msg);
   } else if (strcmp(cmd, "SETPOS") == 0 && val != NULL) {
     float v = atof(val);
-    pid_set_position_setpoint_m(v);
+    status_set_ref_position(v);
     char msg[64];
     snprintf(msg, sizeof(msg), "Setpoint Posicion: %.4f m", v);
     send_bt_response(msg);
-  } else if (strcmp(cmd, "ENABLE") == 0) {
-    pid_toggle_enable();
-    bool is_en = pid_is_enabled();
+  } else if (strcmp(cmd, "SETCONTROL") == 0 && val != NULL) {
+    if (strcasecmp(val, "pid") == 0) control_switch_mode(MODE_PID);
+    else if (strcasecmp(val, "iden") == 0) control_switch_mode(MODE_STATE_SPACE);
+    else if (strcasecmp(val, "redu") == 0) control_switch_mode(MODE_STATE_SPACE_RED);
+    else if (strcasecmp(val, "func") == 0) control_switch_mode(MODE_STATE_SPACE_FUNC);
+    
     char msg[64];
-    snprintf(msg, sizeof(msg), "PID %s",
+    snprintf(msg, sizeof(msg), "Modo Control: %s", status_get_control_mode_str());
+    send_bt_response(msg);
+  } else if (strcmp(cmd, "ENABLE") == 0) {
+    control_toggle_current();
+    bool is_en = is_any_controller_enabled();
+    char msg[64];
+    snprintf(msg, sizeof(msg), "SISTEMA %s",
              is_en ? "HABILITADO" : "DESHABILITADO");
     send_bt_response(msg);
   } else if (strcmp(cmd, "TELE") == 0) {
@@ -104,9 +114,9 @@ static void process_bt_command(char *line) {
     char msg[160];
     snprintf(
         msg, sizeof(msg),
-        "STATUS: Kp=%.4f, Ki=%.4f, Kd=%.4f, PosSP=%.4f, Enabled=%d, Tele=%d",
-        pid_get_kp(), pid_get_ki(), pid_get_kd(), pid_get_position_setpoint_m(),
-        pid_is_enabled(), telemetry_enabled);
+        "STATUS: Mode=%s, Kp=%.4f, Ki=%.4f, Kd=%.4f, PosSP=%.4f, Enabled=%d, Tele=%d",
+        status_get_control_mode_str(), pid_get_kp(), pid_get_ki(), pid_get_kd(),
+        status_get_ref_position(), is_any_controller_enabled(), telemetry_enabled);
     send_bt_response(msg);
   } else if (strcmp(cmd, "CALIBRATE") == 0) {
     if (pid_is_enabled()) {
@@ -118,7 +128,7 @@ static void process_bt_command(char *line) {
     }
   } else if (strcmp(cmd, "HELP") == 0) {
     send_bt_response("Comandos: ENABLE, TELE, STATUS, CALIBRATE, SETK[P,I,D] "
-                     "<val>, SETPOS <m>");
+                     "<val>, SETPOS <m>, SETCONTROL <pid|iden|redu|func>");
   } else {
     char msg[64];
     snprintf(msg, sizeof(msg), "Comando desconocido: %s", cmd);

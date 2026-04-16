@@ -55,7 +55,7 @@ typedef struct {
   float K_i;
 } LQR_Params;
 
-static const LQR_Params params_long = {
+static const LQR_Params params_short = {
     .Ad = {{1.0000f, 0.0100f, 0.0000f, 0.0000f},
            {0.0000f, 1.0000f, 0.0000f, 0.0000f},
            {0.0000f, 0.0000f, 1.0018f, 0.0100f},
@@ -64,19 +64,19 @@ static const LQR_Params params_long = {
     .Cd = {{1.0f, 0.0f, 0.0f, 0.0f},
            {0.0f, 1.0f, 0.0f, 0.0f},
            {0.0f, 0.0f, 1.0f, 0.0f}},
-    .L_obs = {{0.3000f, 0.0100f, 0.0000f},
-              {0.0000f, 0.2500f, 0.0000f},
-              {0.0000f, 0.0000f, 0.75f},
-              {0.0000f, 0.0000f, 14.5f}},
-    .K_x = -29.81f,
-    .K_xdot = -21.86,
-    .K_theta = -48.64,
-    .K_w = -7.23,
-    .K_i = -0.0f};
+    .L_obs = {{0.49000f, 0.0100f, 0.0000f},
+              {0.0000f, 0.500f, 0.0000f},
+              {0.0000f, 0.0000f, 0.9956f},
+              {0.0000f, 0.0000f, 26.3f}},
+    .K_x = -29.812f,
+    .K_xdot = -21.86f,
+    .K_theta = -48.64f,
+    .K_w = -7.23f,
+    .K_i = -18.60f};
 
 // PLACEHOLDER: Duplicado de la vara larga para la vara corta.
 // Sustituir con valores calculados posteriormente.
-static const LQR_Params params_short = {
+static const LQR_Params params_long = {
     .Ad = {{1.0000f, 0.0100f, 0.0000f, 0.0000f},
            {0.0000f, 1.0000f, 0.0000f, 0.0000f},
            {0.0000f, 0.0000f, 1.0018f, 0.0100f},
@@ -117,9 +117,6 @@ static float g_estado_integrador = 0.0f;
 static float g_x_pos_prev = 0.0f; // para calcular x_dot por diferencia finita
 static float g_u_prev = 0.0f;  // u[k-1] usado en la predicción del observador
 static float g_vel_cmd = 0.0f; // velocidad integrada enviada al motor (m/s)
-
-// Referencia de posición (m)
-static float g_ref_posicion = 0.1f;
 
 // Integrador LQI — 5to estado del sistema aumentado (Ki=1, límites ±2 m·s)
 static PIDController g_ss_integrator;
@@ -178,17 +175,30 @@ void SS_Reset(void) {
 
 void SS_UpdateReference(float x_ref, float theta_ref) {
   (void)theta_ref;
-  g_ref_posicion = x_ref;
+  status_set_ref_position(x_ref);
+}
+
+void ss_enable(void) {
+  if (!g_ss_enabled) {
+    g_ss_enabled = true;
+    SS_Reset();
+    ESP_LOGW(TAG, "State Space LQI + Luenberger ENABLED");
+  }
+}
+
+void ss_disable(void) {
+  if (g_ss_enabled) {
+    g_ss_enabled = false;
+    set_motor_velocity(0.0f);
+    ESP_LOGW(TAG, "State Space Control DISABLED");
+  }
 }
 
 void ss_toggle_enable(void) {
-  g_ss_enabled = !g_ss_enabled;
   if (g_ss_enabled) {
-    SS_Reset();
-    ESP_LOGW(TAG, "State Space LQI + Luenberger ENABLED");
+    ss_disable();
   } else {
-    set_motor_velocity(0.0f);
-    ESP_LOGW(TAG, "State Space Control DISABLED");
+    ss_enable();
   }
 }
 
@@ -261,7 +271,7 @@ void state_space_controller_task(void *arg) {
     g_theta_dot_hat =
         x_hat[3]; // θ̂̇  — estimada, reemplaza diferencia finita ruidosa
     g_estado_integrador =
-        PID_Compute(&g_ss_integrator, g_ref_posicion, g_x_pos);
+        PID_Compute(&g_ss_integrator, status_get_ref_position(), g_x_pos);
 
     // ── PASO 4: LEY DE CONTROL LQI ─────────────────────────────────────
     // u = -(K_x·x + K_xdot·ẋ̂ + K_theta·θ + K_w·θ̂̇ + K_i·x_i)

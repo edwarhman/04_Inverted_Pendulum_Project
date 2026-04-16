@@ -45,9 +45,9 @@ typedef struct {
  */
 static const FUNC_Params params_long = {
     .F_func = 0.5000f,
-    .b = {-6.0932f, -4.4684f, -411.9038f, 3.8184f},
-    .G = {-12.0077f, -8.9368f, 179.6182f, 7.3966f},
-    .H_func = 0.2213f,
+    .b = {-5.27f, -3.0511f, -717.140f, 3.22f},
+    .G = {-10.4182f, -6.10f, 283.95f, 6.24f},
+    .H_func = 0.3857f,
     .K_i = 1.0f // El peso de la integral ya está en b[3] y G[3]
 };
 
@@ -73,7 +73,6 @@ static float g_theta = 0.0f;
 static float g_u_control = 0.0f;
 static float g_estado_integrador = 0.0f;
 static float g_vel_cmd = 0.0f;
-static float g_ref_posicion = 0.10f; // Referencia según código usuario
 
 #define LIMITE_INTEGRAL 50.0f
 #define ACEL_MAX 20.0f
@@ -92,17 +91,30 @@ void SS_FUNC_Reset(void) {
 
 void SS_FUNC_UpdateReference(float x_ref, float theta_ref) {
     (void)theta_ref;
-    g_ref_posicion = x_ref;
+    status_set_ref_position(x_ref);
+}
+
+void ss_func_enable(void) {
+    if (!g_ss_func_enabled) {
+        g_ss_func_enabled = true;
+        SS_FUNC_Reset();
+        ESP_LOGW(TAG, "Linear Functional Observer ENABLED");
+    }
+}
+
+void ss_func_disable(void) {
+    if (g_ss_func_enabled) {
+        g_ss_func_enabled = false;
+        set_motor_velocity(0.0f);
+        ESP_LOGW(TAG, "Linear Functional Observer DISABLED");
+    }
 }
 
 void ss_func_toggle_enable(void) {
-    g_ss_func_enabled = !g_ss_func_enabled;
     if (g_ss_func_enabled) {
-        SS_FUNC_Reset();
-        ESP_LOGW(TAG, "Linear Functional Observer ENABLED");
+        ss_func_disable();
     } else {
-        set_motor_velocity(0.0f);
-        ESP_LOGW(TAG, "Linear Functional Observer DISABLED");
+        ss_func_enable();
     }
 }
 
@@ -150,7 +162,7 @@ void state_space_funcional_task(void *arg) {
         g_x_dot = g_vel_cmd; // Velocidad integrada (cinemática de motor de pasos)
         
         // --- PASO 2: SENSOR VIRTUAL (EL INTEGRADOR) ---
-        float error_pos = g_ref_posicion - g_x_pos;
+        float error_pos = status_get_ref_position() - g_x_pos;
         g_estado_integrador += error_pos * DT;
         
         if(g_estado_integrador > LIMITE_INTEGRAL) g_estado_integrador = LIMITE_INTEGRAL;

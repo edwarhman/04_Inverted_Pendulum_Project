@@ -29,6 +29,18 @@ control_mode_t status_get_control_mode(void)
     return g_control_mode;
 }
 
+const char* status_get_control_mode_str(void)
+{
+    switch (g_control_mode)
+    {
+        case MODE_PID: return "PID";
+        case MODE_STATE_SPACE: return "IDEN";
+        case MODE_STATE_SPACE_RED: return "REDU";
+        case MODE_STATE_SPACE_FUNC: return "FUNC";
+        default: return "UKNOWN";
+    }
+}
+
 // --- AÑADIDO: Lógica para la Selección de Barra del Péndulo ---
 static volatile pendulum_rod_t g_pendulum_rod = ROD_LONG;
 
@@ -85,4 +97,17 @@ void status_cycle_pid_param(void)
 pid_param_select_t status_get_pid_param(void)
 {
     return g_pid_param_select;
+}
+
+// --- AÑADIDO: Lógica para la posición de referencia compartida ---
+static volatile float g_ref_posicion = 0.1f;
+
+float status_get_ref_position(void)
+{
+    return g_ref_posicion;
+}
+
+void status_set_ref_position(float ref)
+{
+    g_ref_posicion = ref;
 }

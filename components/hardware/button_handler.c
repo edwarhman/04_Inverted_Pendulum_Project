@@ -163,27 +163,7 @@ void button_handler_task(void *arg) {
       if (gpio_get_level(ENABLE_PID_BUTTON_GPIO) == 0 &&
           gpio_get_level(EMERGENCY_STOP_GPIO_LEFT) == 1 &&
           gpio_get_level(EMERGENCY_STOP_GPIO_RIGHT) == 1) {
-        if(status_get_control_mode() == MODE_PID) {
-            if (ss_is_enabled()) ss_force_disable();
-            if (ss_red_is_enabled()) ss_red_force_disable();
-            if (ss_func_is_enabled()) ss_func_force_disable();
-            pid_toggle_enable();
-        } else if(status_get_control_mode() == MODE_STATE_SPACE) {
-            if (pid_is_enabled()) pid_force_disable();
-            if (ss_red_is_enabled()) ss_red_force_disable();
-            if (ss_func_is_enabled()) ss_func_force_disable();
-            ss_toggle_enable();
-        } else if(status_get_control_mode() == MODE_STATE_SPACE_RED) {
-            if (pid_is_enabled()) pid_force_disable();
-            if (ss_is_enabled()) ss_force_disable();
-            if (ss_func_is_enabled()) ss_func_force_disable();
-            ss_red_toggle_enable();
-        } else {
-            if (pid_is_enabled()) pid_force_disable();
-            if (ss_is_enabled()) ss_force_disable();
-            if (ss_red_is_enabled()) ss_red_force_disable();
-            ss_func_toggle_enable();
-        }
+        control_toggle_current();
       }
     }
     last_button_state = current_button_state;
@@ -349,12 +329,12 @@ void button_handler_task(void *arg) {
         if (right_button_state == 0 && left_button_state == 1) {
           int next_mode = (int)status_get_control_mode() + 1;
           if (next_mode > 3) next_mode = 0;
-          status_set_control_mode((control_mode_t)next_mode);
+          control_switch_mode((control_mode_t)next_mode);
           vTaskDelay(pdMS_TO_TICKS(150));
         } else if (left_button_state == 0 && right_button_state == 1) {
           int prev_mode = (int)status_get_control_mode() - 1;
           if (prev_mode < 0) prev_mode = 3;
-          status_set_control_mode((control_mode_t)prev_mode);
+          control_switch_mode((control_mode_t)prev_mode);
           vTaskDelay(pdMS_TO_TICKS(150));
         }
       } else if (status_get_lcd_view() == VIEW_ROD_SELECTION) {
@@ -456,4 +436,48 @@ void button_handler_start_calibration(void) {
 
   // devolvemos a la vista actual antes de la calibracion
   g_lcd_view_state = (lcd_view_state_t)actual_view_int;
+}
+
+bool is_any_controller_enabled(void) {
+    return pid_is_enabled() || ss_is_enabled() || ss_red_is_enabled() || ss_func_is_enabled();
+}
+
+void control_disable_all(void) {
+    pid_disable();
+    ss_disable();
+    ss_red_disable();
+    ss_func_disable();
+}
+
+void control_switch_mode(control_mode_t new_mode) {
+    bool was_enabled = is_any_controller_enabled();
+    
+    if (was_enabled) {
+        control_disable_all();
+    }
+    
+    status_set_control_mode(new_mode);
+    
+    if (was_enabled) {
+        switch (new_mode) {
+            case MODE_PID: pid_enable(); break;
+            case MODE_STATE_SPACE: ss_enable(); break;
+            case MODE_STATE_SPACE_RED: ss_red_enable(); break;
+            case MODE_STATE_SPACE_FUNC: ss_func_enable(); break;
+        }
+    }
+}
+
+void control_toggle_current(void) {
+    control_mode_t mode = status_get_control_mode();
+    if (is_any_controller_enabled()) {
+        control_disable_all();
+    } else {
+        switch (mode) {
+            case MODE_PID: pid_enable(); break;
+            case MODE_STATE_SPACE: ss_enable(); break;
+            case MODE_STATE_SPACE_RED: ss_red_enable(); break;
+            case MODE_STATE_SPACE_FUNC: ss_func_enable(); break;
+        }
+    }
 }

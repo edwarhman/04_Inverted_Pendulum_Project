@@ -125,7 +125,6 @@ static PID_TuningBank bank_short = {
 static volatile float g_absolute_setpoint = 0.0f;
 
 // Variables globales para monitoreo en LCD
-static volatile float g_position_setpoint_m = 0.0f;
 static volatile float g_current_dynamic_angle_setpoint = 0.0f;
 static volatile float g_current_velocity = 0.0f;
 
@@ -211,13 +210,12 @@ void pid_set_kd(float kd) {
 // --- AÑADIDO: Implementación de la nueva función 'getter' ---
 float pid_get_setpoint_rad(void) { return g_absolute_setpoint; }
 
-float pid_get_position_setpoint(void) { return g_position_setpoint_m; }
-float pid_get_position_setpoint_m(void) { return g_position_setpoint_m; }
+float pid_get_position_setpoint(void) { return status_get_ref_position(); }
+float pid_get_position_setpoint_m(void) { return status_get_ref_position(); }
 
 void pid_set_position_setpoint_m(float m) {
-  g_position_setpoint_m = m;
-  ESP_LOGI(TAG, "Setpoint de posición actualizado a: %.3f m",
-           g_position_setpoint_m);
+  status_set_ref_position(m);
+  ESP_LOGI(TAG, "Setpoint de posición actualizado a: %.3f m", m);
 }
 float pid_get_dynamic_angle_setpoint_rad(void) {
   return g_current_dynamic_angle_setpoint;
@@ -308,8 +306,8 @@ void pid_controller_task(void *arg) {
     float current_position_m = -pid_get_car_position_m();
 
     // --- Lógica de control de posición ---
-    // El setpoint de posición se establece mediante pid_set_position_setpoint_m
-    float position_setpoint_m = g_position_setpoint_m;
+    // El setpoint de posición se obtiene de system_status
+    float position_setpoint_m = status_get_ref_position();
 
     // Calcular el offset en radianes usando el controlador de posición
     float offset_angle_rad = PID_Compute(
