@@ -201,9 +201,6 @@ static void bluetooth_telemetry_task(void *arg) {
   while (1) {
     if (spp_connected) {
       uint64_t time_ms = pid_get_run_time_ms();
-      float pos_m = pid_get_car_position_m();
-      float angle_rad = pulse_counter_get_angle_rad();
-
       if (telemetry_enabled) {
         if (ss_is_enabled()) {
           // tiempo_ms, angulo, posicion, accion_control, velocidad, velocidad_angular

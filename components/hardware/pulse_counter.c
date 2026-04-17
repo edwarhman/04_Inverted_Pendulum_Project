@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/pcnt.h"
+#include "driver/pulse_cnt.h" // NUEVO: API de Pulse Counter moderna
 #include "driver/gpio.h"
 #include "esp_log.h"
 
@@ -12,60 +12,68 @@
 #define PCNT_INPUT_B_PIN    12 // Fase B del encoder
 #define ENCODER_INDEX_Z_PIN 13 // Fase Z (índice) del encoder
 
-#define PCNT_UNIT           PCNT_UNIT_0
-//static const char *TAG = "PULSE_COUNTER_PCNT";
+static pcnt_unit_handle_t pcnt_unit = NULL;
 
 /**
  * @brief ISR para la señal Z. Resetea el contador del PCNT a cero.
  */
 static void IRAM_ATTR encoder_index_z_isr_handler(void* arg) {
-    pcnt_counter_clear(PCNT_UNIT);
+    if (pcnt_unit) {
+        pcnt_unit_clear_count(pcnt_unit);
+    }
 }
 
 /**
  * @brief Inicializa el PCNT en modo cuadratura y la interrupción de la señal Z.
  */
 void pulse_counter_init(void) {
-    // Configuración para el Canal 0 (Fase A como pulso, Fase B como dirección)
-    pcnt_config_t pcnt_config_ch0 = {
-        .pulse_gpio_num = PCNT_INPUT_A_PIN,
-        .ctrl_gpio_num = PCNT_INPUT_B_PIN,
-        .channel = PCNT_CHANNEL_0,
-        .unit = PCNT_UNIT,
-        .pos_mode = PCNT_COUNT_DEC,
-        .neg_mode = PCNT_COUNT_INC,
-        .lctrl_mode = PCNT_MODE_REVERSE,
-        .hctrl_mode = PCNT_MODE_KEEP,
-    };
-    pcnt_unit_config(&pcnt_config_ch0);
+    ESP_LOGI("PULSE_COUNTER", "Inicializando PCNT con la nueva API pulse_cnt.h...");
 
-    // Configuración para el Canal 1 (Fase B como pulso, Fase A como dirección)
-    pcnt_config_t pcnt_config_ch1 = {
-        .pulse_gpio_num = PCNT_INPUT_B_PIN,
-        .ctrl_gpio_num = PCNT_INPUT_A_PIN,
-        .channel = PCNT_CHANNEL_1,
-        .unit = PCNT_UNIT,
-        .pos_mode = PCNT_COUNT_INC,
-        .neg_mode = PCNT_COUNT_DEC,
-        .lctrl_mode = PCNT_MODE_REVERSE,
-        .hctrl_mode = PCNT_MODE_KEEP,
+    // 1. Configuración de la unidad PCNT
+    pcnt_unit_config_t unit_config = {
+        .high_limit = 32767,
+        .low_limit = -32768,
     };
-    pcnt_unit_config(&pcnt_config_ch1);
+    ESP_ERROR_CHECK(pcnt_new_unit(&unit_config, &pcnt_unit));
 
-    // Configurar pull-up para los pines de entrada
+    // 2. Configuración del filtro de ruido (glitch filter)
+    pcnt_glitch_filter_config_t filter_config = {
+        .max_glitch_ns = 1000,
+    };
+    ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(pcnt_unit, &filter_config));
+
+    // 3. Configuración de Canales (Modo Cuadratura x4)
+    
+    // Canal A
+    pcnt_chan_config_t chan_a_config = {
+        .edge_gpio_num = PCNT_INPUT_A_PIN,
+        .level_gpio_num = PCNT_INPUT_B_PIN,
+    };
+    pcnt_channel_handle_t pcnt_chan_a = NULL;
+    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_a_config, &pcnt_chan_a));
+
+    // Canal B
+    pcnt_chan_config_t chan_b_config = {
+        .edge_gpio_num = PCNT_INPUT_B_PIN,
+        .level_gpio_num = PCNT_INPUT_A_PIN,
+    };
+    pcnt_channel_handle_t pcnt_chan_b = NULL;
+    ESP_ERROR_CHECK(pcnt_new_channel(pcnt_unit, &chan_b_config, &pcnt_chan_b));
+
+    // 4. Establecer acciones para los canales (Lógica de cuadratura)
+    // Canal A: Reacciona a flancos de A según el nivel de B
+    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan_a, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE));
+    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan_a, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+
+    // Canal B: Reacciona a flancos de B según el nivel de A
+    ESP_ERROR_CHECK(pcnt_channel_set_edge_action(pcnt_chan_b, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE));
+    ESP_ERROR_CHECK(pcnt_channel_set_level_action(pcnt_chan_b, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE));
+
+    // 5. Instalar pull-ups para los pines (opcional si ya tienen externos, pero recomendado)
     gpio_set_pull_mode(PCNT_INPUT_A_PIN, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(PCNT_INPUT_B_PIN, GPIO_PULLUP_ONLY);
 
-    // Habilitar filtro de ruido de hardware
-    pcnt_set_filter_value(PCNT_UNIT, 100);
-    pcnt_filter_enable(PCNT_UNIT);
-    
-    // Iniciar el contador
-    pcnt_counter_pause(PCNT_UNIT);
-    pcnt_counter_clear(PCNT_UNIT);
-    pcnt_counter_resume(PCNT_UNIT);
-
-    // Configurar la interrupción para la señal Z
+    // 6. Configurar la interrupción para la señal Z (GPIO 13)
     gpio_config_t z_pin_config = {
         .pin_bit_mask = (1ULL << ENCODER_INDEX_Z_PIN),
         .mode = GPIO_MODE_INPUT,
@@ -74,20 +82,28 @@ void pulse_counter_init(void) {
     };
     gpio_config(&z_pin_config);
 
+    // Notar: gpio_install_isr_service(0) se suele llamar una sola vez en el sistema.
+    // Lo dejamos aquí por compatibilidad si es el primer uso de GPIO ISR.
     gpio_install_isr_service(0);
     gpio_isr_handler_add(ENCODER_INDEX_Z_PIN, encoder_index_z_isr_handler, NULL);
 
-    //ESP_LOGI(TAG, "PCNT en modo cuadratura (pines A:%d, B:%d) y señal Z (pin:%d) inicializados.", 
-    //         PCNT_INPUT_A_PIN, PCNT_INPUT_B_PIN, ENCODER_INDEX_Z_PIN);
+    // 7. Habilitar e iniciar la unidad
+    ESP_ERROR_CHECK(pcnt_unit_enable(pcnt_unit));
+    ESP_ERROR_CHECK(pcnt_unit_clear_count(pcnt_unit));
+    ESP_ERROR_CHECK(pcnt_unit_start(pcnt_unit));
+
+    ESP_LOGI("PULSE_COUNTER", "PCNT inicializado exitosamente en modo cuadratura.");
 }
 
 /**
  * @brief Obtiene el valor actual del contador del PCNT.
  */
 int16_t pulse_counter_get_value(void) {
-    int16_t count = 0;
-    pcnt_get_counter_value(PCNT_UNIT, &count);
-    return count;
+    int count = 0;
+    if (pcnt_unit) {
+        pcnt_unit_get_count(pcnt_unit, &count);
+    }
+    return (int16_t)count;
 }
 
 // --- Abstracción de Unidades Físicas ---
@@ -112,3 +128,4 @@ float pulse_counter_get_angle_deg(void) {
 int16_t pulse_counter_get_angle_pulses(void) {
     return pulse_counter_get_value();
 }
+

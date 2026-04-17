@@ -165,7 +165,6 @@ void lcd_display_task(void *pvParameters)
 {
     // vTaskDelay(pdMS_TO_TICKS(500)); // Dar tiempo a que otros módulos se inicien
     ESP_LOGI("LCD_TASK", "Tarea de visualización iniciada.");
-    float g_car_position_cm;
 
     while (1)
     {
