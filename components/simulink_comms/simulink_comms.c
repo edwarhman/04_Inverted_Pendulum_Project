@@ -25,13 +25,14 @@
 #include "pulse_counter.h"
 #include "state_space_controller.h"
 #include "state_space_reducido.h"
+#include "system_status.h"
 
 static const char *TAG = "SIM_COMM";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Private state
 // ──────────────────────────────────────────────────────────────────────────────
-#define TX_VARS  6          // floats we transmit to Simulink
+#define TX_VARS  7          // floats we transmit to Simulink
 #define RX_VARS  0          // floats we expect from Simulink (future use)
 
 // Packet: 1 header byte + TX_VARS floats + 1 tail byte
@@ -49,7 +50,7 @@ static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 void simulink_comms_init(uart_port_t uart_num, uint32_t baud_rate,
                          int tx_vars, int rx_vars)
 {
-    (void)tx_vars; // We always use TX_VARS = 6
+    (void)tx_vars; // We always use TX_VARS = 7
     (void)rx_vars; // RX not implemented yet
 
     s_uart_num = uart_num;
@@ -97,6 +98,7 @@ static void tx_task(void *pvParameters)
             vars[3] = ss_get_u_control();
             vars[4] = ss_get_x_dot();
             vars[5] = ss_get_theta_dot_hat();
+            vars[6] = status_get_ref_position();
         } else if (ss_red_is_enabled()) {
             // State-space REDUCED controller active
             vars[0] = (float)pid_get_run_time_ms();
@@ -105,6 +107,7 @@ static void tx_task(void *pvParameters)
             vars[3] = ss_red_get_u_control();
             vars[4] = ss_red_get_x_dot();
             vars[5] = ss_red_get_theta_dot_hat();
+            vars[6] = status_get_ref_position();
         } else {
             // PID controller (or idle) - now exposes all 6 variables
             vars[0] = (float)pid_get_run_time_ms();
@@ -113,7 +116,9 @@ static void tx_task(void *pvParameters)
             vars[3] = pid_get_acceleration();          // u_control = aceleración (m/s²)
             vars[4] = pid_get_velocity();              // x_dot = velocidad carro (m/s)
             vars[5] = pid_get_angular_velocity();      // theta_dot (rad/s) — diferencia finita
+            vars[6] = status_get_ref_position();       // ref_pos (m)
         }
+
 
         // ── Pack floats into packet (little-endian, native) ───────────────
         portENTER_CRITICAL(&s_mux);
