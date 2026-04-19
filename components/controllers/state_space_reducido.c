@@ -203,7 +203,7 @@ void state_space_reducido_task(void *arg) {
 
     // ── PASO 1: LECTURA DE SENSORES ────────────────────────────────────
     g_theta = pulse_counter_get_angle_rad() - (float)M_PI;
-    g_x_pos = -pid_get_car_position_m();
+    g_x_pos = pid_get_car_position_m();
 
     // ── PASO 2: ACTUALIZACIÓN DEL OBSERVADOR REDUCIDO ──────────────────
     reduced_observer_update(p, g_theta, g_u_prev, g_theta_prev);
@@ -234,7 +234,7 @@ void state_space_reducido_task(void *arg) {
     if (g_vel_cmd < -VEL_CMD_LIMIT)
       g_vel_cmd = -VEL_CMD_LIMIT;
 
-    set_motor_velocity(-g_vel_cmd);
+    set_motor_velocity(g_vel_cmd);
 
     // ── PASO 5: GUARDAR ESTADOS PARA EL PRÓXIMO CICLO ──────────────────
     g_u_prev = g_u_control;
