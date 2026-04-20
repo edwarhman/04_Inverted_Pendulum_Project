@@ -79,7 +79,7 @@ void app_main(void) {
   // Inicializar telemetría Simulink (UART0, 115200 baud, 6 variables TX, 0 RX)
   // NOTA: Los logs de ESP_LOG están desactivados para mantener el stream
   // binario limpio.
-  simulink_comms_init(UART_NUM_0, 115200, 6, 0);
+  simulink_comms_init(UART_NUM_0, 115200, 7, 0);
   simulink_comms_start_tasks(3, tskNO_AFFINITY,
                              10); // Prioridad 3, 10ms por paquete (100 Hz)
 

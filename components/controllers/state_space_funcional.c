@@ -56,7 +56,7 @@ static const FUNC_Params params_short = {
     .F_func = 0.5000f,
     .b = {-6.0932f, -4.4684f, -411.9038f, 3.8184f},
     .G = {-12.0077f, -8.9368f, 179.6182f, 7.3966f},
-    .H_func = 0.2213f,
+    .H_func = 0.1821f,
     .K_i = 1.0f // El peso de la integral ya está en b[3] y G[3]
 };
 
@@ -158,7 +158,7 @@ void state_space_funcional_task(void *arg) {
         // --- PASO 1: LEER SENSORES FÍSICOS ---
         // θ = 0 en vertical arriba. pulse_counter_get_angle_rad() entrega 0 abajo (PI rad en vertical arriba)
         g_theta = pulse_counter_get_angle_rad() - (float)M_PI; 
-        g_x_pos = -pid_get_car_position_m();
+        g_x_pos = pid_get_car_position_m();
         g_x_dot = g_vel_cmd; // Velocidad integrada (cinemática de motor de pasos)
         
         // --- PASO 2: SENSOR VIRTUAL (EL INTEGRADOR) ---
@@ -187,7 +187,7 @@ void state_space_funcional_task(void *arg) {
         if(g_vel_cmd > VEL_MAX) g_vel_cmd = VEL_MAX;
         if(g_vel_cmd < -VEL_MAX) g_vel_cmd = -VEL_MAX;
 
-        set_motor_velocity(-g_vel_cmd);
+        set_motor_velocity(g_vel_cmd);
 
         // --- PASO 5: ACTUALIZAR EL FILTRO (Z_k+1) ---
         // Z_next = F*Z + G1*x + G2*ẋ + G3*θ + G4*xi + H*u

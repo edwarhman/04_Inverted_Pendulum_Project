@@ -23,6 +23,7 @@
 #include "state_space_controller.h"
 #include "state_space_reducido.h"
 #include "system_status.h"
+#include "test_routine.h"
 
 #define SPP_SERVER_NAME "SPP_SERVER"
 #define CONFIG_BT_DEVICE_NAME "Pendulo_Invertido"
@@ -126,8 +127,15 @@ static void process_bt_command(char *line) {
       button_handler_start_calibration();
       send_bt_response("Calibracion Finalizada");
     }
+  } else if (strcmp(cmd, "TESTRUN") == 0) {
+    if (!is_any_controller_enabled()) {
+      send_bt_response("ERROR: Habilite el control antes de ejecutar el test");
+    } else {
+      send_bt_response("Iniciando Rutina de Prueba...");
+      test_routine_start();
+    }
   } else if (strcmp(cmd, "HELP") == 0) {
-    send_bt_response("Comandos: ENABLE, TELE, STATUS, CALIBRATE, SETK[P,I,D] "
+    send_bt_response("Comandos: ENABLE, TELE, STATUS, CALIBRATE, TESTRUN, SETK[P,I,D] "
                      "<val>, SETPOS <m>, SETCONTROL <pid|iden|redu|func>");
   } else {
     char msg[64];
@@ -213,8 +221,8 @@ static void bluetooth_telemetry_task(void *arg) {
           float x_dot = ss_get_x_dot();
           float theta_dot = ss_get_theta_dot_hat();
           
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot);
+          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
+                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot, status_get_ref_position());
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }
@@ -226,8 +234,8 @@ static void bluetooth_telemetry_task(void *arg) {
           float x_dot = ss_red_get_x_dot();
           float theta_dot = ss_red_get_theta_dot_hat();
           
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot);
+          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
+                             time_ms, theta, x_pos, u_ctrl, x_dot, theta_dot, status_get_ref_position());
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }
@@ -240,8 +248,8 @@ static void bluetooth_telemetry_task(void *arg) {
           float vel       = pid_get_velocity();           // velocidad del carro (m/s)
           float theta_dot = pid_get_angular_velocity();  // velocidad angular (rad/s)
 
-          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
-                             time_ms, theta, x_pos, u_ctrl, vel, theta_dot);
+          int len = snprintf(packet, sizeof(packet), "%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\r\n",
+                             time_ms, theta, x_pos, u_ctrl, vel, theta_dot, status_get_ref_position());
           if (len > 0) {
             esp_spp_write(spp_handle, len, (uint8_t *)packet);
           }

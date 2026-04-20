@@ -252,7 +252,7 @@ void state_space_controller_task(void *arg) {
 
     // x = posición del carro (m), signo negado según convención física del
     // sistema
-    g_x_pos = -pid_get_car_position_m();
+    g_x_pos = pid_get_car_position_m();
 
     // ẋ medida = diferencia finita de posición  (entrada al observador como
     // y[1])
@@ -296,7 +296,7 @@ void state_space_controller_task(void *arg) {
     if (g_vel_cmd < -VEL_CMD_LIMIT)
       g_vel_cmd = -VEL_CMD_LIMIT;
 
-    set_motor_velocity(-g_vel_cmd);
+    set_motor_velocity(g_vel_cmd);
 
     // ── PASO 6: GUARDAR u PARA EL PRÓXIMO CICLO DEL OBSERVADOR ─────────
     g_u_prev = g_u_control;

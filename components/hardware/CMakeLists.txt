@@ -1,3 +1,3 @@
 idf_component_register(SRCS "pulse_counter.c" "pwm_generator.c" "button_handler.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES esp_timer driver freertos display system_core controllers)
+                       REQUIRES esp_timer driver freertos display system_core controllers test_routine)
