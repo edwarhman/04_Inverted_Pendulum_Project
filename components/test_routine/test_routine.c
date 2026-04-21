@@ -15,12 +15,12 @@ static void test_routine_task(void *pvParameters) {
     
     // 1. Ir a 20 cm
     ESP_LOGI(TAG, "Inyectando perturbación: Setpoint = 0.2 m (20 cm)");
-    status_set_ref_position(0.17f);
+    status_set_ref_position(0.135f);
     vTaskDelay(pdMS_TO_TICKS(7000));
     
     // 2. Ir a -20 cm
     ESP_LOGI(TAG, "Inyectando perturbación: Setpoint = -0.2 m (-20 cm)");
-    status_set_ref_position(-0.17f);
+    status_set_ref_position(-0.135f);
     vTaskDelay(pdMS_TO_TICKS(7000));
     
     // 3. Regresar a 0 cm
