@@ -57,14 +57,14 @@ typedef struct {
  * H = F*L + Phi21 - L*Phi11 = -15.6319
  */
 static const RED_Params params_short = {.F_obs = 0.5f,
-                                        .H_obs = -0.04f,
-                                        .G_obs = -23.7f,
+                                        .H_obs = -0.0426f,
+                                        .G_obs = -24.7143f,
                                         .L_obs = 50.20f,
-                                        .K_x = -29.812f,
-                                        .K_xdot = -21.86f,
-                                        .K_theta = -48.64f,
-                                        .K_w = -7.23f,
-                                        .K_i = -18.60f};
+                                        .K_x = -24.5f,
+    .K_xdot = -13.6286f,
+    .K_theta = -51.7f,
+    .K_w = -7.23f,
+    .K_i = -19.16f};
 
 // Placeholder: Duplicado para la vara corta (ajustar tras cálculo en MATLAB)
 static const RED_Params params_long = {.F_obs = 0.6018f,

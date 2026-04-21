@@ -67,12 +67,12 @@ static const LQR_Params params_short = {
     .L_obs = {{0.49000f, 0.0100f, 0.0000f},
               {0.0000f, 0.500f, 0.0000f},
               {0.0000f, 0.0000f, 0.9956f},
-              {0.0000f, 0.0000f, 26.3f}},
-    .K_x = -29.812f,
-    .K_xdot = -21.86f,
-    .K_theta = -48.64f,
+              {0.0000f, 0.0000f, 25.3f}},
+    .K_x = -24.5f,
+    .K_xdot = -13.6286f,
+    .K_theta = -51.7f,
     .K_w = -7.23f,
-    .K_i = -18.60f};
+    .K_i = -19.16f};
 
 // PLACEHOLDER: Duplicado de la vara larga para la vara corta.
 // Sustituir con valores calculados posteriormente.

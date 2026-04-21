@@ -54,9 +54,9 @@ static const FUNC_Params params_long = {
 // Placeholder para vara corta (duplicado temporal)
 static const FUNC_Params params_short = {
     .F_func = 0.5000f,
-    .b = {-6.0932f, -4.4684f, -411.9038f, 3.8184f},
-    .G = {-12.0077f, -8.9368f, 179.6182f, 7.3966f},
-    .H_func = 0.1821f,
+    .b = {-5.0932f, -2.8f, -414.9038f, 3.9184f},
+    .G = {-9.8997f, -5.6044f, 178.6182f, 7.6266f},
+    .H_func = 0.1970f,
     .K_i = 1.0f // El peso de la integral ya está en b[3] y G[3]
 };
 
